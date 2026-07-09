@@ -780,170 +780,58 @@ export default function SettingsWindow({ onClose }: Props = {}) {
 
             {activeTab === "a2a" && (
               <div>
-                <div className="settings-section-header">A2A Server</div>
+                <div className="settings-section-header">A2A Connections</div>
+                <div style={{ color: "var(--sub)", fontSize: 13, marginBottom: 12 }}>
+                  Connect to omni-agent-hub or direct A2A agents to extend desktop capabilities.
+                </div>
                 <div className="settings-card">
                   <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>Enable A2A Server</span>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <input
-                        type="checkbox"
-                        checked={settings.a2a_enabled}
-                        onChange={(e) =>
-                          setSettings(
-                            (s) =>
-                              s && { ...s, a2a_enabled: e.target.checked },
-                          )
-                        }
-                      />
-                      <span>Start an A2A-compatible HTTP server for agent-to-agent communication</span>
-                    </label>
-                  </div>
-                  <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>LAN Access</span>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <input
-                        type="checkbox"
-                        checked={settings.a2a_bind_lan}
-                        onChange={(e) =>
-                          setSettings(
-                            (s) =>
-                              s && { ...s, a2a_bind_lan: e.target.checked },
-                          )
-                        }
-                      />
-                      <span style={{ color: settings.a2a_bind_lan ? "var(--error)" : undefined }}>
-                        {settings.a2a_bind_lan
-                          ? "Listening on all interfaces (0.0.0.0) — accessible from LAN"
-                          : "Local only (127.0.0.1)"}
-                      </span>
-                    </label>
-                  </div>
-                  <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>Port</span>
-                    <input
-                      className="omni-input"
-                      type="number"
-                      min={1024}
-                      max={65535}
-                      value={settings.a2a_port}
-                      onChange={(e) =>
-                        setSettings(
-                          (s) =>
-                            s && {
-                              ...s,
-                              a2a_port: parseInt(e.target.value) || 1423,
-                            },
-                        )
-                      }
-                    />
-                  </div>
-                  <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>Token</span>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center", width: "100%" }}>
-                      <input
-                        className="omni-input"
-                        type="text"
-                        readOnly
-                        value={settings.a2a_token ?? "(not generated — enable and save to generate)"}
-                        style={{ flex: 1, fontFamily: "monospace", fontSize: 12 }}
-                      />
-                      <button
-                        type="button"
-                        className="omni-button"
-                        style={{ whiteSpace: "nowrap" }}
-                        disabled={!settings.a2a_token}
-                        onClick={() => {
-                          if (settings.a2a_token) {
-                            navigator.clipboard.writeText(settings.a2a_token);
-                          }
-                        }}
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-                  <div style={rowStyle(false)}>
-                    <span style={rowLabelStyle}>Server URL</span>
-                    <input
-                      className="omni-input"
-                      type="text"
-                      readOnly
-                      value={`http://${settings.a2a_bind_lan ? "0.0.0.0" : "127.0.0.1"}:${settings.a2a_port}`}
-                      style={{ fontFamily: "monospace", fontSize: 12 }}
-                    />
-                  </div>
-                  <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>Public A2A URL</span>
-                    <input
-                      className="omni-input"
-                      type="text"
-                      placeholder="http://127.0.0.1:1423 (default for local hub)"
-                      value={settings.a2a_public_url}
-                      onChange={(e) =>
-                        setSettings((s) => s && { ...s, a2a_public_url: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>Hub URL</span>
+                    <span style={rowLabelStyle}>Hub Endpoint</span>
                     <input
                       className="omni-input"
                       type="text"
                       placeholder="http://127.0.0.1:8222"
-                      value={settings.a2a_hub_url}
-                      onChange={(e) =>
-                        setSettings((s) => s && { ...s, a2a_hub_url: e.target.value })
-                      }
+                      defaultValue={typeof window !== "undefined" ? window.localStorage.getItem("omni-a2a-hub-endpoint") ?? "" : ""}
+                      onChange={(e) => {
+                        try { window.localStorage.setItem("omni-a2a-hub-endpoint", e.target.value); } catch {}
+                      }}
                     />
                   </div>
                   <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>Hub Admin Key</span>
+                    <span style={rowLabelStyle}>Hub Token</span>
                     <input
                       className="omni-input"
                       type="password"
-                      placeholder="Prefer OMNILAUNCHER_A2A_HUB_ADMIN_KEY"
-                      value={settings.a2a_hub_admin_key}
-                      onChange={(e) =>
-                        setSettings((s) => s && { ...s, a2a_hub_admin_key: e.target.value })
-                      }
+                      placeholder="Hub api_key (client bearer)"
+                      defaultValue={typeof window !== "undefined" ? window.localStorage.getItem("omni-a2a-hub-token") ?? "" : ""}
+                      onChange={(e) => {
+                        try { window.localStorage.setItem("omni-a2a-hub-token", e.target.value); } catch {}
+                      }}
                     />
                   </div>
                   <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>Hub Upstream Name</span>
+                    <span style={rowLabelStyle}>Direct Agent</span>
                     <input
                       className="omni-input"
                       type="text"
-                      value={settings.a2a_hub_upstream_name}
-                      onChange={(e) =>
-                        setSettings((s) => s && { ...s, a2a_hub_upstream_name: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>Hub Prefix</span>
-                    <input
-                      className="omni-input"
-                      type="text"
-                      value={settings.a2a_hub_prefix}
-                      onChange={(e) =>
-                        setSettings((s) => s && { ...s, a2a_hub_prefix: e.target.value })
-                      }
+                      placeholder="http://127.0.0.1:1423"
+                      defaultValue={typeof window !== "undefined" ? window.localStorage.getItem("omni-a2a-direct-endpoint") ?? "" : ""}
+                      onChange={(e) => {
+                        try { window.localStorage.setItem("omni-a2a-direct-endpoint", e.target.value); } catch {}
+                      }}
                     />
                   </div>
                   <div style={rowStyle(true)}>
-                    <span style={rowLabelStyle}>Auto-register in Hub</span>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <input
-                        type="checkbox"
-                        checked={settings.a2a_hub_auto_register}
-                        onChange={(e) =>
-                          setSettings((s) =>
-                            s && { ...s, a2a_hub_auto_register: e.target.checked },
-                          )
-                        }
-                      />
-                      <span>Upsert this backend as an omni-agent-hub upstream on server startup</span>
-                    </label>
+                    <span style={rowLabelStyle}>Agent Token</span>
+                    <input
+                      className="omni-input"
+                      type="password"
+                      placeholder="Direct agent bearer token"
+                      defaultValue={typeof window !== "undefined" ? window.localStorage.getItem("omni-a2a-direct-token") ?? "" : ""}
+                      onChange={(e) => {
+                        try { window.localStorage.setItem("omni-a2a-direct-token", e.target.value); } catch {}
+                      }}
+                    />
                   </div>
                 </div>
               </div>

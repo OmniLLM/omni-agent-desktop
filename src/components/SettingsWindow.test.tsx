@@ -49,16 +49,6 @@ const realSettings: AppSettings = {
   max_results: 25,
   background_url: "https://example.com/bg.png",
   backend_url: "http://wsl-backend:1422",
-  a2a_enabled: false,
-  a2a_bind_lan: false,
-  a2a_port: 1423,
-  a2a_token: null,
-  a2a_public_url: "",
-  a2a_hub_url: "",
-  a2a_hub_admin_key: "",
-  a2a_hub_upstream_name: "omnilauncher",
-  a2a_hub_prefix: "@omnilauncher",
-  a2a_hub_auto_register: false,
 };
 
 beforeEach(() => {
@@ -71,6 +61,31 @@ async function importSettingsWindow() {
   const mod = await import("./SettingsWindow");
   return mod.default;
 }
+
+describe("SettingsWindow A2A architecture", () => {
+  it("presents A2A as client connections to either a hub or direct agent, not server/admin registration", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_settings") return realSettings;
+      if (cmd === "list_models") return ["gpt-5.4"];
+      return undefined;
+    });
+
+    const SettingsWindow = await importSettingsWindow();
+    render(<SettingsWindow />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /a2a/i }));
+
+    expect(screen.getByText("A2A Connections")).toBeInTheDocument();
+    expect(
+      screen.getByText(/connect to omni-agent-hub or direct a2a agents/i),
+    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/http:\/\/127\.0\.0\.1:8222/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/http:\/\/127\.0\.0\.1:1423/i)).toBeInTheDocument();
+    expect(screen.queryByText("A2A Server")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Hub Admin Key/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Auto-register/i)).not.toBeInTheDocument();
+  });
+});
 
 describe("SettingsWindow load-failure handling", () => {
   it("renders real settings when get_settings succeeds (sanity baseline)", async () => {

@@ -124,7 +124,11 @@ const WINDOW_LOCAL_COMMANDS = new Set<string>([
   "capture_vision_screenshot",
 ]);
 
-const TAURI_NATIVE_COMMANDS = new Set<string>([]);
+const TAURI_NATIVE_COMMANDS = new Set<string>([
+  "get_settings",
+  "save_settings_cmd",
+  "set_hotkey_cmd",
+]);
 
 function isNativeCommand(cmd: string): boolean {
   return WINDOW_LOCAL_COMMANDS.has(cmd) || TAURI_NATIVE_COMMANDS.has(cmd);

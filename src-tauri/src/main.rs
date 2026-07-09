@@ -1,10 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use base64::Engine;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use simplelog::{ColorChoice, ConfigBuilder, LevelFilter, TermLogger, TerminalMode, WriteLogger};
-use std::{fs, io::Read, path::PathBuf, sync::Arc};
-use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
+use std::{fs, io::Read, path::PathBuf, sync::{Arc, Mutex}};
+use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, State};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 fn config_dir() -> PathBuf {
@@ -21,20 +21,16 @@ fn legacy_omnilauncher_config_dir() -> PathBuf {
         .join("omnilauncher")
 }
 
+fn settings_path() -> PathBuf {
+    let dir = config_dir();
+    let _ = fs::create_dir_all(&dir);
+    dir.join("settings.json")
+}
+
 fn window_pos_path() -> PathBuf {
     let dir = config_dir();
     let _ = fs::create_dir_all(&dir);
     dir.join("window-pos.json")
-}
-
-fn frontend_backend_token_path() -> PathBuf {
-    let dir = config_dir();
-    let _ = fs::create_dir_all(&dir);
-    dir.join("backend-token")
-}
-
-fn server_token_path() -> PathBuf {
-    legacy_omnilauncher_config_dir().join("server-token")
 }
 
 fn debug_log_path() -> PathBuf {
@@ -44,75 +40,89 @@ fn debug_log_path() -> PathBuf {
         .join("desktop.log")
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct DesktopSettings {
+fn default_ai_timeout_secs() -> u64 { 120 }
+fn default_ai_max_tool_iterations() -> usize { 10 }
+fn default_ai_max_retry_attempts() -> u32 { 3 }
+fn default_ai_retry_base_delay_ms() -> u64 { 2000 }
+fn default_ai_loop_detector_enabled() -> bool { true }
+fn default_theme() -> String { "system".to_string() }
+fn default_hotkey() -> String { "Ctrl+Shift+O".to_string() }
+fn default_max_results() -> usize { 10 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AppSettings {
     #[serde(default)]
-    backend_url: String,
+    ai_base_url: String,
+    #[serde(default)]
+    ai_model: String,
+    #[serde(default)]
+    ai_api_key: String,
+    #[serde(default = "default_ai_timeout_secs")]
+    ai_timeout_secs: u64,
+    #[serde(default = "default_ai_max_tool_iterations")]
+    ai_max_tool_iterations: usize,
+    #[serde(default = "default_ai_max_retry_attempts")]
+    ai_max_retry_attempts: u32,
+    #[serde(default = "default_ai_retry_base_delay_ms")]
+    ai_retry_base_delay_ms: u64,
+    #[serde(default = "default_ai_loop_detector_enabled")]
+    ai_loop_detector_enabled: bool,
+    #[serde(default = "default_theme")]
+    theme: String,
     #[serde(default = "default_hotkey")]
     hotkey: String,
+    #[serde(default = "default_max_results")]
+    max_results: usize,
+    #[serde(default)]
+    background_url: String,
+    /// Deprecated compatibility field. Desktop no longer uses or defaults an
+    /// OmniLauncher REST backend URL; task/tool execution is A2A.
+    #[serde(default)]
+    backend_url: String,
 }
 
-fn default_hotkey() -> String {
-    "Ctrl+Shift+O".to_string()
-}
-
-impl Default for DesktopSettings {
+impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            backend_url: String::new(),
+            ai_base_url: String::new(),
+            ai_model: String::new(),
+            ai_api_key: String::new(),
+            ai_timeout_secs: default_ai_timeout_secs(),
+            ai_max_tool_iterations: default_ai_max_tool_iterations(),
+            ai_max_retry_attempts: default_ai_max_retry_attempts(),
+            ai_retry_base_delay_ms: default_ai_retry_base_delay_ms(),
+            ai_loop_detector_enabled: default_ai_loop_detector_enabled(),
+            theme: default_theme(),
             hotkey: default_hotkey(),
+            max_results: default_max_results(),
+            background_url: String::new(),
+            backend_url: String::new(),
         }
     }
 }
 
-fn load_desktop_settings() -> DesktopSettings {
-    let path = legacy_omnilauncher_config_dir().join("settings.json");
+#[derive(Clone)]
+struct ShortcutSlot(Arc<Mutex<Option<Shortcut>>>);
+
+fn read_settings_from(path: PathBuf) -> Option<AppSettings> {
     fs::read_to_string(path)
         .ok()
-        .and_then(|text| serde_json::from_str::<DesktopSettings>(&text).ok())
+        .and_then(|text| serde_json::from_str::<AppSettings>(&text).ok())
+}
+
+fn load_desktop_settings() -> AppSettings {
+    read_settings_from(settings_path())
+        .or_else(|| read_settings_from(legacy_omnilauncher_config_dir().join("settings.json")))
         .unwrap_or_default()
 }
 
-fn resolve_backend_url(settings: &DesktopSettings) -> String {
-    std::env::var("OMNI_AGENT_BACKEND_URL")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .or_else(|| {
-            std::env::var("OMNILAUNCHER_BACKEND_URL")
-                .ok()
-                .filter(|v| !v.trim().is_empty())
-        })
-        .unwrap_or_else(|| {
-            if settings.backend_url.trim().is_empty() {
-                "http://127.0.0.1:1422".to_string()
-            } else {
-                settings.backend_url.trim().to_string()
-            }
-        })
-}
-
-fn resolve_auth_token() -> String {
-    if let Ok(token) = std::env::var("OMNI_AGENT_BACKEND_TOKEN") {
-        let trimmed = token.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
-        }
+fn save_desktop_settings(settings: &AppSettings) -> Result<(), String> {
+    let path = settings_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    if let Ok(token) = std::env::var("OMNILAUNCHER_AUTH_TOKEN") {
-        let trimmed = token.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
-        }
-    }
-    for path in [frontend_backend_token_path(), server_token_path()] {
-        if let Ok(token) = fs::read_to_string(path) {
-            let trimmed = token.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_string();
-            }
-        }
-    }
-    String::new()
+    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
+    fs::write(path, json).map_err(|e| e.to_string())
 }
 
 fn init_logging(debug: bool) {
@@ -193,23 +203,49 @@ fn parse_key_code(token: &str) -> Option<Code> {
     }
 }
 
-#[tauri::command]
-fn get_server_token() -> String {
-    resolve_auth_token()
-}
-
-#[tauri::command]
-fn get_frontend_backend_token() -> String {
-    fs::read_to_string(frontend_backend_token_path()).unwrap_or_default().trim().to_string()
-}
-
-#[tauri::command]
-fn save_frontend_backend_token(token: String) -> Result<(), String> {
-    let path = frontend_backend_token_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+fn register_shortcut(app: &tauri::AppHandle, slot: &ShortcutSlot, shortcut: Shortcut) -> Result<(), String> {
+    if let Some(previous) = *slot.0.lock().map_err(|e| e.to_string())? {
+        let _ = app.global_shortcut().unregister(previous);
     }
-    fs::write(path, token.trim()).map_err(|e| e.to_string())
+
+    let window = app.get_webview_window("main").ok_or_else(|| "main window not found".to_string())?;
+    app.global_shortcut()
+        .on_shortcut(shortcut, move |_app, _shortcut, event| {
+            if let ShortcutState::Pressed = event.state() {
+                let visible = window.is_visible().unwrap_or(false)
+                    && !window.is_minimized().unwrap_or(false);
+                if visible {
+                    let _ = window.hide();
+                } else {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    let _ = window.emit("omnilauncher://shown", String::new());
+                }
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    *slot.0.lock().map_err(|e| e.to_string())? = Some(shortcut);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_settings() -> AppSettings {
+    load_desktop_settings()
+}
+
+#[tauri::command]
+fn save_settings_cmd(settings: AppSettings) -> Result<AppSettings, String> {
+    save_desktop_settings(&settings)?;
+    Ok(settings)
+}
+
+#[tauri::command]
+fn set_hotkey_cmd(app: tauri::AppHandle, slot: State<'_, ShortcutSlot>, settings: AppSettings) -> Result<AppSettings, String> {
+    let shortcut = parse_shortcut(&settings.hotkey).ok_or_else(|| format!("Invalid hotkey: {}", settings.hotkey))?;
+    register_shortcut(&app, &slot, shortcut)?;
+    save_desktop_settings(&settings)?;
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -320,49 +356,24 @@ fn main() {
     let debug = std::env::args().any(|a| a == "--debug");
     init_logging(debug);
     let settings = load_desktop_settings();
-    let backend_url = resolve_backend_url(&settings);
-    let auth_token = resolve_auth_token();
-    let active_shortcut = Arc::new(std::sync::Mutex::new(None::<Shortcut>));
+    let shortcut_slot = ShortcutSlot(Arc::new(Mutex::new(None::<Shortcut>)));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .manage(shortcut_slot.clone())
         .setup(move |app| {
             let window = app.get_webview_window("main").expect("main window");
-            window
-                .eval(format!(
-                    "window.__OMNILAUNCHER_BACKEND_URL__ = {}; window.__OMNILAUNCHER_TOKEN__ = {};",
-                    serde_json::to_string(&backend_url).unwrap(),
-                    serde_json::to_string(&auth_token).unwrap(),
-                ))
-                .ok();
             window.center().ok();
 
             let shortcut = parse_shortcut(&settings.hotkey)
                 .unwrap_or_else(|| Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO));
-            let shortcut_window = window.clone();
-            app.global_shortcut()
-                .on_shortcut(shortcut, move |_app, _shortcut, event| {
-                    if let ShortcutState::Pressed = event.state() {
-                        let visible = shortcut_window.is_visible().unwrap_or(false)
-                            && !shortcut_window.is_minimized().unwrap_or(false);
-                        if visible {
-                            let _ = shortcut_window.hide();
-                        } else {
-                            let _ = shortcut_window.unminimize();
-                            let _ = shortcut_window.show();
-                            let _ = shortcut_window.set_focus();
-                            let _ = shortcut_window.emit("omnilauncher://shown", String::new());
-                        }
-                    }
-                })
-                .map_err(|e| e.to_string())?;
-            *active_shortcut.lock().unwrap() = Some(shortcut);
+            register_shortcut(&app.handle().clone(), &shortcut_slot, shortcut)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_server_token,
-            get_frontend_backend_token,
-            save_frontend_backend_token,
+            get_settings,
+            save_settings_cmd,
+            set_hotkey_cmd,
             frontend_log,
             save_window_position,
             set_window_geometry,

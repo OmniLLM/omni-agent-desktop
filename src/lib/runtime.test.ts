@@ -86,10 +86,10 @@ function cleanupGlobals() {
 // 0. Frontend backend-token storage
 // ===========================================================================
 
-describe("frontend backend-token storage", () => {
+describe("legacy HTTP backend-token storage", () => {
   afterEach(cleanupGlobals);
 
-  it("uses a frontend-local backend token from the Tauri shell before HTTP requests", async () => {
+  it("uses a frontend-local backend token for legacy HTTP commands", async () => {
     const state = mockBackend();
     (globalThis as any).window.__TAURI_INTERNALS__ = {};
     vi.mocked(tauriInvoke).mockImplementation(async (cmd: string) => {
@@ -97,15 +97,15 @@ describe("frontend backend-token storage", () => {
       return undefined;
     });
 
-    await invoke("get_settings");
+    await invoke("list_skills");
 
-    const call = state.calls.find((c) => c.url.endsWith("/api/settings"));
+    const call = state.calls.find((c) => c.url.endsWith("/api/skills"));
     expect(call).toBeDefined();
     expect(call!.headers["x-omnilauncher-token"]).toBe("frontend-file-token");
     expect(tauriInvoke).toHaveBeenCalledWith("get_frontend_backend_token");
   });
 
-  it("re-prompts and retries once when a saved frontend token is rejected", async () => {
+  it("re-prompts and retries once when a saved frontend token is rejected for legacy HTTP commands", async () => {
     const calls: { url: string; method: string; headers: Record<string, string> }[] = [];
     (globalThis as any).window = {
       __OMNILAUNCHER_BACKEND_URL__: "http://test.local",
@@ -134,7 +134,7 @@ describe("frontend backend-token storage", () => {
       });
     });
 
-    await invoke("get_settings");
+    await invoke("list_skills");
 
     expect(calls.map((call) => call.headers["x-omnilauncher-token"])).toEqual([
       "old-token",
@@ -146,21 +146,17 @@ describe("frontend backend-token storage", () => {
     });
   });
 
-  it("does not save local settings when the backend token prompt is cancelled", async () => {
+  it("routes settings saves to local Tauri even if a legacy backend URL is injected", async () => {
     mockBackend();
-    (globalThis as any).window.__OMNILAUNCHER_BACKEND_URL__ = "http://cancelled-token.local";
+    (globalThis as any).window.__OMNILAUNCHER_BACKEND_URL__ = "http://legacy-backend.local";
     (globalThis as any).window.__TAURI_INTERNALS__ = {};
-    (globalThis as any).window.prompt = vi.fn(() => "");
-    vi.mocked(tauriInvoke).mockImplementation(async (cmd: string) => {
-      if (cmd === "get_frontend_backend_token") return "";
-      return undefined;
-    });
+    vi.mocked(tauriInvoke).mockResolvedValue({ hotkey: "Ctrl+Shift+P" });
 
     await expect(
       invoke("save_settings_cmd", { settings: { hotkey: "Ctrl+Shift+P" } }),
-    ).rejects.toThrow("Backend token is required");
+    ).resolves.toEqual({ hotkey: "Ctrl+Shift+P" });
 
-    expect(tauriInvoke).not.toHaveBeenCalledWith("save_settings_cmd", {
+    expect(tauriInvoke).toHaveBeenCalledWith("save_settings_cmd", {
       settings: { hotkey: "Ctrl+Shift+P" },
     });
   });
@@ -199,6 +195,20 @@ describe("command classification", () => {
 
 describe("backend mode detection", () => {
   afterEach(cleanupGlobals);
+
+  it("routes settings commands to local Tauri when no backend URL is configured", async () => {
+    (globalThis as any).window = { __TAURI_INTERNALS__: {} };
+    vi.mocked(tauriInvoke).mockResolvedValue({ hotkey: "Ctrl+Shift+O" });
+
+    await invoke("get_settings");
+
+    expect(tauriInvoke).toHaveBeenCalledWith("get_settings", undefined);
+  });
+
+  it("desktop shell source no longer defaults to OmniLauncher REST port 1422", () => {
+    expect(mainRsSource).not.toContain('"http://127.0.0.1:1422".to_string()');
+    expect(mainRsSource).not.toContain("__OMNILAUNCHER_BACKEND_URL__");
+  });
 
   it('returns "http" when backend URL is set', () => {
     (globalThis as any).window = {
@@ -313,31 +323,31 @@ describe("http routing for new endpoints", () => {
     expect(state.calls.some((c) => c.url.endsWith("/api/ai/cancel") && c.method === "POST")).toBe(true);
   });
 
-  it("routes save_settings_cmd only to the backend in the desktop shell", async () => {
+  it("routes save_settings_cmd to local Tauri in the desktop shell", async () => {
     const state = mockBackend();
     const settings = { ai_base_url: "http://example.com", ai_model: "gpt-4", ai_timeout_secs: 300 };
     (globalThis as any).window.__TAURI_INTERNALS__ = {};
+    vi.mocked(tauriInvoke).mockResolvedValue(settings);
 
-    await invoke("save_settings_cmd", { settings });
+    await expect(invoke("save_settings_cmd", { settings })).resolves.toEqual(settings);
 
     const call = state.calls.find((c) => c.url.endsWith("/api/settings") && c.method === "POST");
-    expect(tauriInvoke).not.toHaveBeenCalledWith("save_settings_cmd", { settings });
-    expect(call).toBeDefined();
-    expect(JSON.parse(call!.body!)).toEqual(settings);
+    expect(tauriInvoke).toHaveBeenCalledWith("save_settings_cmd", { settings });
+    expect(call).toBeUndefined();
   });
 
-  it("routes set_hotkey_cmd only to the backend in the desktop shell", async () => {
+  it("routes set_hotkey_cmd to local Tauri in the desktop shell", async () => {
     const state = mockBackend();
     const settings = { hotkey: "Ctrl+Shift+O" };
     (globalThis as any).window.__TAURI_INTERNALS__ = {};
     (globalThis as any).window.__OMNILAUNCHER_TOKEN__ = "current-backend-token";
+    vi.mocked(tauriInvoke).mockResolvedValue(settings);
 
-    await invoke("set_hotkey_cmd", { settings });
+    await expect(invoke("set_hotkey_cmd", { settings })).resolves.toEqual(settings);
 
     const call = state.calls.find((c) => c.url.endsWith("/api/settings") && c.method === "POST");
-    expect(tauriInvoke).not.toHaveBeenCalledWith("set_hotkey_cmd", { settings });
-    expect(call).toBeDefined();
-    expect(JSON.parse(call!.body!)).toEqual(settings);
+    expect(tauriInvoke).toHaveBeenCalledWith("set_hotkey_cmd", { settings });
+    expect(call).toBeUndefined();
   });
 
   it("maps save_settings_cmd to POST /api/settings with settings body outside Tauri", async () => {
@@ -349,17 +359,17 @@ describe("http routing for new endpoints", () => {
     expect(JSON.parse(call!.body!)).toEqual(settings);
   });
 
-  it("routes save_settings_cmd to backend only in the desktop shell when a backend URL is configured", async () => {
+  it("routes save_settings_cmd to native Tauri even when a legacy backend URL is configured in the desktop shell", async () => {
     const state = mockBackend();
     const settings = { ai_base_url: "http://example.com", ai_model: "gpt-4", ai_timeout_secs: 300 };
     (globalThis as any).window.__TAURI_INTERNALS__ = {};
+    vi.mocked(tauriInvoke).mockResolvedValue(settings);
 
-    await invoke("save_settings_cmd", { settings });
+    await expect(invoke("save_settings_cmd", { settings })).resolves.toEqual(settings);
 
     const call = state.calls.find((c) => c.url.endsWith("/api/settings") && c.method === "POST");
-    expect(tauriInvoke).not.toHaveBeenCalledWith("save_settings_cmd", { settings });
-    expect(call).toBeDefined();
-    expect(JSON.parse(call!.body!)).toEqual(settings);
+    expect(tauriInvoke).toHaveBeenCalledWith("save_settings_cmd", { settings });
+    expect(call).toBeUndefined();
   });
 
   it("routes save_settings_cmd to native Tauri when no backend URL is configured", async () => {
@@ -367,11 +377,12 @@ describe("http routing for new endpoints", () => {
     (globalThis as any).window = {
       __TAURI_INTERNALS__: {},
     };
+    vi.mocked(tauriInvoke).mockResolvedValue(settings);
     (globalThis as any).fetch = vi.fn(async () => {
       throw new Error("fetch should not be called for native settings saves");
     });
 
-    await expect(invoke("save_settings_cmd", { settings })).resolves.toBeUndefined();
+    await expect(invoke("save_settings_cmd", { settings })).resolves.toEqual(settings);
 
     expect(tauriInvoke).toHaveBeenCalledWith("save_settings_cmd", { settings });
     expect(globalThis.fetch).not.toHaveBeenCalled();

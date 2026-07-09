@@ -85,6 +85,21 @@ describe("SettingsWindow A2A architecture", () => {
     expect(screen.queryByText(/Hub Admin Key/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Auto-register/i)).not.toBeInTheDocument();
   });
+  it("does not expose legacy OmniLauncher REST backend settings", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_settings") return realSettings;
+      if (cmd === "list_models") return ["gpt-5.4"];
+      return undefined;
+    });
+
+    const SettingsWindow = await importSettingsWindow();
+    render(<SettingsWindow />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /general/i }));
+
+    expect(screen.queryByText("Backend URL")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/1422/)).not.toBeInTheDocument();
+  });
 });
 
 describe("SettingsWindow load-failure handling", () => {
@@ -120,7 +135,7 @@ describe("SettingsWindow load-failure handling", () => {
     // Wait for the load to settle.
     await waitFor(() =>
       expect(
-        screen.getByText(/could not load settings from the backend/i),
+        screen.getByText(/could not load settings/i),
       ).toBeInTheDocument(),
     );
 
@@ -190,7 +205,7 @@ describe("SettingsWindow load-failure handling", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText(/could not load settings from the backend/i),
+        screen.getByText(/could not load settings/i),
       ).toBeInTheDocument(),
     );
 

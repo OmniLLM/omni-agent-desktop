@@ -305,7 +305,7 @@ export default function SettingsWindow({ onClose }: Props = {}) {
             ⚠
           </div>
           <div style={{ fontSize: 15, color: "var(--text)", fontWeight: 600 }}>
-            Could not load settings from the backend.
+            Could not load settings.
           </div>
           <div
             style={{
@@ -756,20 +756,6 @@ export default function SettingsWindow({ onClose }: Props = {}) {
                               ...s,
                               max_results: parseInt(e.target.value) || 10,
                             },
-                        )
-                      }
-                    />
-                  </div>
-                  <div style={rowStyle(true)}>
-                    <span style={rowLabelStyle}>Backend URL</span>
-                    <input
-                      className="omni-input"
-                      type="text"
-                      placeholder="http://127.0.0.1:1422 (default)"
-                      value={settings.backend_url}
-                      onChange={(e) =>
-                        setSettings(
-                          (s) => s && { ...s, backend_url: e.target.value },
                         )
                       }
                     />

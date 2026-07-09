@@ -5,7 +5,6 @@ APP_NAME := omni-agent-desktop
 TAURI_DIR := src-tauri
 NPM ?= npm
 CARGO ?= cargo
-BACKEND_URL ?= http://127.0.0.1:1422
 RELEASE_BINARY := $(TAURI_DIR)/target/release/$(APP_NAME)
 
 .DEFAULT_GOAL := help
@@ -15,7 +14,7 @@ RELEASE_BINARY := $(TAURI_DIR)/target/release/$(APP_NAME)
 
 help: ## Show build/test targets
 	@printf '\nOmni Agent Desktop build targets\n\n'
-	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target> [BACKEND_URL=http://127.0.0.1:1422]\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf '\nCommon:\n  make install\n  make build\n  make verify-binary\n  make package\n\n'
 
 deps: ## Install JavaScript dependencies from package-lock.json
@@ -53,7 +52,7 @@ test-rust: ## Run cargo tests for the Tauri shell
 	cd $(TAURI_DIR) && $(CARGO) test
 
 dev: ## Run the full Tauri dev app (Vite + desktop shell)
-	OMNI_AGENT_BACKEND_URL="$(BACKEND_URL)" $(NPM) run tauri dev
+	$(NPM) run tauri dev
 
 dev-web: ## Run only the Vite frontend dev server
 	$(NPM) run dev

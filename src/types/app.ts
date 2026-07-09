@@ -48,8 +48,8 @@ export interface AppSettings {
   hotkey: string;
   max_results: number;
   background_url: string;
-  /** Base URL of the separated backend the desktop shell connects to. Empty =
-   * env override / built-in default `http://127.0.0.1:1422`. */
+  /** Deprecated compatibility field. Desktop no longer connects to the
+   * OmniLauncher REST backend; task/tool execution uses A2A endpoints. */
   backend_url: string;
 }
 

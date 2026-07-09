@@ -53,16 +53,24 @@ Priority for backend token:
 ## Develop
 
 ```bash
-npm install
-npm run build
-cd src-tauri && cargo check
-npm run tauri dev
+make install
+make check
+make dev
 ```
+
+Useful Make targets:
+
+- `make build` — build the release desktop binary with embedded React/Vite assets
+- `make verify-binary` — verify the binary exists and contains embedded frontend HTML
+- `make package` — build platform installers/bundles with Tauri
+- `make dev` — run the full Tauri dev app (Vite + desktop shell)
+- `make dev-web` — run only the Vite frontend dev server
+
+`make build` produces `src-tauri/target/release/omni-agent-desktop`. The frontend is embedded into the Tauri binary by `tauri-build`; no separate `dist/` directory is needed at runtime. On Linux it is still dynamically linked against system WebKitGTK/GTK libraries, which is normal for Tauri apps.
 
 ## Test
 
 ```bash
-npm test -- --run src/lib/runtime.test.ts src/components/SettingsWindow.test.tsx
-npm run build
-cd src-tauri && cargo check
+make test
+make check
 ```

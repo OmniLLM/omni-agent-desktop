@@ -8,39 +8,40 @@ const repoRoot = process.cwd();
 // ~4s. Give these make-spawning cases headroom over vitest's 5s default.
 const MAKE_TIMEOUT_MS = 30_000;
 
-describe("Make/ops single-binary handling", () => {
-  it("treats lowercase role=backend as a backend-only restart", () => {
+describe("Make/ops desktop app handling", () => {
+  it("build produces the release desktop binary after building frontend assets", () => {
     const output = execFileSync(
       "make",
-      ["-n", "restart", "role=backend", "DEBUG=1", "VERBOSE=1"],
+      ["-n", "build"],
       { cwd: repoRoot, encoding: "utf8" },
     );
 
-    expect(output).toContain("make stop ROLE=backend");
-    expect(output).toContain("make build ROLE=backend");
-    expect(output).not.toContain("build-frontend-command");
+    expect(output).toContain("npm run build");
+    expect(output).toContain("cargo build --release");
+    expect(output).toContain("Built src-tauri/target/release/omni-agent-desktop");
   }, MAKE_TIMEOUT_MS);
 
-  it("build no longer copies role binaries (single self-dispatching binary)", () => {
-    const output = execFileSync("make", ["-n", "build", "ROLE=backend"], {
+  it("build compiles the frontend and release Tauri binary", () => {
+    const output = execFileSync("make", ["-n", "build"], {
       cwd: repoRoot,
       encoding: "utf8",
     });
 
-    // The historical role-copy step is gone: build is just `cargo build`.
+    expect(output).toContain("npm run build");
     expect(output).toContain("cargo build --release");
     expect(output).not.toContain("prepare-binaries");
     expect(output).not.toContain("omnilauncher-frontend");
     expect(output).not.toContain("omnilauncher-backend");
   }, MAKE_TIMEOUT_MS);
 
-  it("install-cli symlinks the single binary as `ol`", () => {
-    const output = execFileSync("make", ["-n", "install-cli"], {
+  it("verify-binary checks that the embedded frontend is present", () => {
+    const output = execFileSync("make", ["-n", "verify-binary"], {
       cwd: repoRoot,
       encoding: "utf8",
     });
 
-    expect(output).toContain(".local/bin/ol");
-    expect(output).toContain("src-tauri/target/release/omnilauncher");
+    expect(output).toContain('test -x "src-tauri/target/release/omni-agent-desktop"');
+    expect(output).toContain("grep -a -q '<!doctype html>'");
+    expect(output).toContain("Verified embedded frontend");
   }, MAKE_TIMEOUT_MS);
 });

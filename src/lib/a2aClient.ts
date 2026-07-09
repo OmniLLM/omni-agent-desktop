@@ -27,7 +27,10 @@ export interface A2aConnection {
 export interface DelegateA2aTaskArgs {
   endpoint: string;
   token?: string;
+  /** Human-readable task text. Used as the text part unless `data` is provided. */
   task: string;
+  /** Optional structured A2A data part for plugin/tool calls through a hub. */
+  data?: unknown;
   skillId?: string;
   contextId?: string;
   messageId?: string;
@@ -169,7 +172,9 @@ export async function delegateA2aTask(args: DelegateA2aTaskArgs): Promise<string
     message: {
       role: "user",
       messageId: args.messageId || `desktop-${Date.now()}`,
-      parts: [{ type: "text", text: task }],
+      parts: [
+        args.data !== undefined ? { type: "data", data: args.data } : { type: "text", text: task },
+      ],
     },
   };
   if (args.skillId?.trim()) params.skillId = args.skillId.trim();

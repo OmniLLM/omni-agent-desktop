@@ -82,10 +82,44 @@ describe("A2A client", () => {
     expect((sendInit.headers as Record<string, string>).Authorization).toBe("Bearer tok");
     const sendBody = JSON.parse(sendInit.body as string);
     expect(sendBody.method).toBe("message/send");
+    expect(sendBody.params.message.parts).toEqual([{ type: "text", text: "say ok" }]);
     expect(sendBody.params.skillId).toBe("omnilauncher.skill:echo");
 
     const getBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
     expect(getBody.method).toBe("tasks/get");
     expect(getBody.params.id).toBe("task-1");
+  });
+
+  it("sends structured data parts for hub plugin-tool calls", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            id: "task-2",
+            status: {
+              state: "completed",
+              message: { role: "agent", parts: [{ type: "text", text: "56088" }] },
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      delegateA2aTask({
+        endpoint: "http://hub.local",
+        token: "tok",
+        task: "calculate",
+        skillId: "omnilauncher.plugin:tool:calculator",
+        data: { expression: "123 * 456" },
+      }),
+    ).resolves.toBe("56088");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.params.message.parts).toEqual([{ type: "data", data: { expression: "123 * 456" } }]);
   });
 });

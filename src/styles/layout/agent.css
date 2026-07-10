@@ -1,0 +1,353 @@
+/* === Agent console layout ===
+   Pure-agent chat shell: full-height column with a scrolling transcript,
+   a pinned composer, an attention-grabbing tool-approval prompt, and a
+   floating settings toggle. Uses the shared design tokens (variables.css). */
+
+.agent-root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  color: var(--text);
+}
+
+/* Floating settings toggle, top-right, glassy chip */
+.settings-toggle {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-elevated) 78%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  backdrop-filter: blur(10px) saturate(1.2);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease;
+}
+
+.settings-toggle:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: var(--bg-elevated);
+  transform: translateY(-1px);
+}
+
+.settings-toggle:active {
+  transform: translateY(0);
+}
+
+/* Main chat column */
+.agent-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* === Transcript === */
+.chat-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 64px 22px 20px;
+  scroll-behavior: smooth;
+}
+
+/* Empty state: soft, centered hint */
+.chat-pane:empty::before {
+  content: "Ask anything. Pick a mode below — Plan reads only, Ask confirms changes, Autopilot runs freely.";
+  margin: auto;
+  max-width: 30ch;
+  text-align: center;
+  color: var(--sub);
+  font-size: 14px;
+  line-height: 1.6;
+  opacity: 0.85;
+}
+
+.bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 78%;
+  animation: agent-bubble-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes agent-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.bubble .role {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sub);
+  padding: 0 4px;
+}
+
+.bubble .content {
+  padding: 11px 15px;
+  border-radius: 14px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: var(--shadow);
+}
+
+/* User: accent bubble, right-aligned */
+.bubble.user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.bubble.user .content {
+  background: var(--user-bubble);
+  color: var(--user-bubble-text);
+  border-bottom-right-radius: 5px;
+}
+
+/* Assistant: surface bubble, left-aligned, accent hairline */
+.bubble.assistant {
+  align-self: flex-start;
+}
+
+.bubble.assistant .content {
+  background: var(--ai-bubble);
+  color: var(--ai-text);
+  border: 1px solid var(--border);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  border-bottom-left-radius: 5px;
+}
+
+.bubble .tools {
+  font-size: 11px;
+  color: var(--sub);
+  padding: 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* === Composer === */
+.composer {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: end;
+  gap: 10px;
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+/* Run-mode as a labelled segmented-style control */
+.composer > label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sub);
+}
+
+.composer select {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 30px 9px 12px;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%239aa0a6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.composer select:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.composer select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.composer textarea {
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 11px 14px;
+  resize: none;
+  min-height: 44px;
+  max-height: 160px;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.composer textarea::placeholder {
+  color: var(--sub);
+}
+
+.composer textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.composer button {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--user-bubble-text);
+  background: var(--accent);
+  border: none;
+  border-radius: 12px;
+  padding: 12px 22px;
+  cursor: pointer;
+  transition:
+    filter 0.16s ease,
+    transform 0.12s ease,
+    opacity 0.16s ease;
+}
+
+.composer button:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.composer button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.composer button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* === Tool approval prompt === */
+.approval {
+  flex-shrink: 0;
+  margin: 0 18px 4px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg-elevated));
+  box-shadow: var(--shadow);
+  animation: agent-approval-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes agent-approval-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.approval p {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.approval strong {
+  color: var(--warning);
+  font-weight: 700;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+.approval pre {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  max-height: 160px;
+  overflow: auto;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.approval button {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  margin-right: 8px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    filter 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.12s ease;
+}
+
+.approval button:hover {
+  transform: translateY(-1px);
+}
+
+/* Approve = primary accent; Deny = danger; middle = neutral */
+.approval button:first-of-type {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--user-bubble-text);
+}
+
+.approval button:last-of-type {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
+  color: var(--danger);
+}
+
+.approval button:first-of-type:hover {
+  filter: brightness(1.08);
+}

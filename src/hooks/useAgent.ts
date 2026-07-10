@@ -79,7 +79,21 @@ export function useAgent(): UseAgentResult {
     if (!text.trim()) return;
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setLoading(true);
-    await invoke("agent_run", { message: text, mode });
+    try {
+      await invoke("agent_run", { message: text, mode });
+    } catch (e) {
+      // The agent loop normally clears `loading` via the agent://done or
+      // agent://error events. If the command itself rejects before emitting,
+      // surface the failure and re-enable the composer so the user isn't stuck.
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+        },
+      ]);
+      setLoading(false);
+    }
   }, []);
 
   const decide = useCallback(

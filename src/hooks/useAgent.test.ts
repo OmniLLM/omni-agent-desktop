@@ -27,7 +27,7 @@ describe("useAgent", () => {
   it("sends a message and appends a user turn", async () => {
     const { result } = renderHook(() => useAgent());
     await act(async () => {
-      await result.current.send("hello", "ask");
+      await result.current.send("hello");
     });
     expect(invoke).toHaveBeenCalledWith("agent_run", {
       message: "hello",
@@ -42,7 +42,7 @@ describe("useAgent", () => {
   it("appends assistant reply on agent://done", async () => {
     const { result } = renderHook(() => useAgent());
     await act(async () => {
-      await result.current.send("hi", "ask");
+      await result.current.send("hi");
     });
     await act(async () => {
       emit("agent://done", "the answer");
@@ -56,7 +56,7 @@ describe("useAgent", () => {
   it("surfaces approval requests and clears them on decision", async () => {
     const { result } = renderHook(() => useAgent());
     await act(async () => {
-      await result.current.send("go", "ask");
+      await result.current.send("go");
     });
     await act(async () => {
       emit("agent://tool-approval-request", {
@@ -78,4 +78,25 @@ describe("useAgent", () => {
     });
     expect(result.current.pendingApproval).toBeNull();
   });
+
+  it("appends thinking and action traces from agent events", async () => {
+    const { result } = renderHook(() => useAgent());
+    await act(async () => {
+      await result.current.send("go");
+    });
+    await act(async () => {
+      emit("agent://thought", "I should list the files first.");
+      emit("agent://tool-call", {
+        call_id: "c1",
+        tool: "ls",
+        args: { path: "/home" },
+      });
+      emit("agent://tool-result", { call_id: "c1", tool: "ls", result: "a\nb" });
+    });
+    const traces = result.current.messages.filter((m) => m.role === "thinking");
+    expect(traces.map((t) => t.kind)).toEqual(["thought", "action", "result"]);
+    expect(traces[1].content).toContain("ls");
+    expect(traces[1].content).toContain("/home");
+  });
 });
+

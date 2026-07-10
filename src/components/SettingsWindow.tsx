@@ -709,7 +709,6 @@ export default function SettingsWindow({ onClose }: Props = {}) {
                         setSettings((s) => s && { ...s, theme: e.target.value })
                       }
                     >
-                      <option value="system">System (Follow OS)</option>
                       <option value="dark">Dark (Battle Blue)</option>
                       <option value="light">Light (Catppuccin Latte)</option>
                     </select>

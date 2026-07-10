@@ -406,6 +406,11 @@ async fn agent_run(
             let _ = app.emit("agent://done", turn.text.clone());
             return Ok(());
         }
+        // Surface the model's reasoning that precedes its tool calls so the UI
+        // can show the thinking process behind each action.
+        if !turn.text.trim().is_empty() {
+            let _ = app.emit("agent://thought", turn.text.clone());
+        }
         for call in &turn.tool_calls {
             counter += 1;
             let call_id = format!("call-{counter}");

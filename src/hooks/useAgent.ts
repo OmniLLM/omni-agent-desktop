@@ -1,13 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../lib/runtime";
-import type { ChatMessage, RunMode, ToolCallEvent } from "../types/app";
+import type { ChatMessage, ToolCallEvent } from "../types/app";
 
 export interface UseAgentResult {
   messages: ChatMessage[];
   loading: boolean;
   pendingApproval: ToolCallEvent | null;
-  send: (text: string, mode: RunMode) => Promise<void>;
+  send: (text: string) => Promise<void>;
   decide: (decision: "approve" | "deny" | "allow_session") => Promise<void>;
+}
+
+interface ToolResultEvent {
+  call_id: string;
+  tool: string;
+  result: string;
+}
+
+/** One-line, human-readable summary of a tool call's arguments. */
+function summarizeArgs(args: Record<string, unknown>): string {
+  const primary =
+    (args.command as string) ??
+    (args.path as string) ??
+    (args.pattern as string) ??
+    (args.task as string) ??
+    "";
+  return typeof primary === "string" ? primary : JSON.stringify(args);
+}
+
+/** Trim long tool output for the inline trace; full output still feeds the model. */
+function clampResult(text: string, max = 600): string {
+  const trimmed = text.trim();
+  return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
 }
 
 export function useAgent(): UseAgentResult {
@@ -61,6 +84,45 @@ export function useAgent(): UseAgentResult {
           setPendingApproval(null);
         }),
       );
+      // The model's reasoning that precedes its tool calls.
+      un.push(
+        await listen<string>("agent://thought", (e) => {
+          if (!e.payload?.trim()) return;
+          setMessages((prev) => [
+            ...prev,
+            { role: "thinking", kind: "thought", content: e.payload },
+          ]);
+        }),
+      );
+      // A tool is about to run (or is awaiting approval).
+      un.push(
+        await listen<ToolCallEvent>("agent://tool-call", (e) => {
+          const summary = summarizeArgs(e.payload.args);
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "thinking",
+              kind: "action",
+              content: summary
+                ? `${e.payload.tool} — ${summary}`
+                : e.payload.tool,
+            },
+          ]);
+        }),
+      );
+      // A tool finished; show a clamped preview of its output.
+      un.push(
+        await listen<ToolResultEvent>("agent://tool-result", (e) => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "thinking",
+              kind: "result",
+              content: clampResult(e.payload.result),
+            },
+          ]);
+        }),
+      );
       un.push(
         await listen<ToolCallEvent>("agent://tool-approval-request", (e) => {
           setPendingApproval(e.payload);
@@ -75,12 +137,14 @@ export function useAgent(): UseAgentResult {
     };
   }, []);
 
-  const send = useCallback(async (text: string, mode: RunMode) => {
+  const send = useCallback(async (text: string) => {
     if (!text.trim()) return;
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setLoading(true);
     try {
-      await invoke("agent_run", { message: text, mode });
+      // Always run in "ask" mode: mutating tools always prompt for permission,
+      // so there is no run-mode selector to configure.
+      await invoke("agent_run", { message: text, mode: "ask" });
     } catch (e) {
       // The agent loop normally clears `loading` via the agent://done or
       // agent://error events. If the command itself rejects before emitting,

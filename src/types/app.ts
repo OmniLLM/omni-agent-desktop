@@ -1,10 +1,12 @@
 export type RunMode = "plan" | "ask" | "autopilot";
 
 export interface ChatMessage {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "thinking";
   content: string;
   tools_used?: string[];
   isStreaming?: boolean;
+  /** For role "thinking": the kind of trace entry, used for iconography. */
+  kind?: "thought" | "action" | "result";
 }
 
 /** Transitional alias for components still importing the old name. */

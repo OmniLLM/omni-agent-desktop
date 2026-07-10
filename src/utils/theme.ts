@@ -1,4 +1,4 @@
-export type ThemeMode = "dark" | "light" | "system";
+export type ThemeMode = "dark" | "light";
 export type ResolvedTheme = "dark" | "light";
 
 export function getSystemTheme(): ResolvedTheme {
@@ -13,8 +13,5 @@ export function getSystemTheme(): ResolvedTheme {
 }
 
 export function parseThemeMode(theme: string): ThemeMode {
-  if (theme === "dark" || theme === "light" || theme === "system") {
-    return theme;
-  }
-  return "system";
+  return theme === "light" ? "light" : "dark";
 }

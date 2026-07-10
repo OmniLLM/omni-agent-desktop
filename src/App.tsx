@@ -8,8 +8,8 @@ import GlobalKeyframes from "./components/GlobalKeyframes";
 import AppShell from "./components/AppShell";
 import { useAgent } from "./hooks/useAgent";
 import { useTheme } from "./hooks/useTheme";
-import type { ThemeMode } from "./utils/theme";
 import type { AppSettings } from "./types/app";
+import { parseThemeMode } from "./utils/theme";
 
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
@@ -22,7 +22,7 @@ export default function App() {
     invoke<AppSettings>("get_settings")
       .then((s) => {
         setSettings(s);
-        if (s?.theme) setTheme(s.theme as ThemeMode);
+        if (s?.theme) setTheme(parseThemeMode(s.theme));
       })
       .catch(() => {});
   }, [setTheme]);

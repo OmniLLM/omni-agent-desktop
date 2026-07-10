@@ -65,7 +65,10 @@ export default function App() {
               }}
             >
               <div className="settings-sheet">
-                <SettingsWindow onClose={() => setShowSettings(false)} />
+                <SettingsWindow
+                  onClose={() => setShowSettings(false)}
+                  onThemeChange={setTheme}
+                />
               </div>
             </div>
           ) : null}

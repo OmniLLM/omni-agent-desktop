@@ -329,6 +329,9 @@ async fn approve_tool(
 fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .no_proxy()
+        // Bound every single request so a slow/dead provider or A2A hub can't
+        // hang the agent loop indefinitely (the UI would sit on "Thinking…").
+        .timeout(std::time::Duration::from_secs(120))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
 }
@@ -415,8 +418,12 @@ async fn agent_run(
             counter += 1;
             let call_id = format!("call-{counter}");
             let is_a2a = a2a_tools.iter().any(|t| t.tool_name == call.name);
-            let mutating = is_a2a
-                || agent::tools::classify(&call.name) == agent::tools::ToolClass::Mutating;
+            // A2A delegation is auto-routed and treated as non-mutating: hub
+            // skills are read-only queries, so they run without an approval
+            // prompt. Only local file/shell tools (write/edit/bash) require
+            // approval in Ask mode.
+            let mutating =
+                !is_a2a && agent::tools::classify(&call.name) == agent::tools::ToolClass::Mutating;
             let _ = app.emit(
                 "agent://tool-call",
                 ToolCallEvent {

@@ -73,9 +73,11 @@ function formatHotkeyEvent(
 
 interface Props {
   onClose?: () => void;
+  /** Apply a theme change immediately (before Save) so the UI reflects it live. */
+  onThemeChange?: (theme: "dark" | "light") => void;
 }
 
-export default function SettingsWindow({ onClose }: Props = {}) {
+export default function SettingsWindow({ onClose, onThemeChange }: Props = {}) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [hotkeyStatus, setHotkeyStatus] = useState<SaveStatus>("idle");
@@ -705,9 +707,13 @@ export default function SettingsWindow({ onClose }: Props = {}) {
                       className="omni-select"
                       style={{ cursor: "pointer" }}
                       value={settings.theme}
-                      onChange={(e) =>
-                        setSettings((s) => s && { ...s, theme: e.target.value })
-                      }
+                      onChange={(e) => {
+                        const theme = e.target.value;
+                        setSettings((s) => s && { ...s, theme });
+                        if (theme === "dark" || theme === "light") {
+                          onThemeChange?.(theme);
+                        }
+                      }}
                     >
                       <option value="dark">Dark (Battle Blue)</option>
                       <option value="light">Light (Catppuccin Latte)</option>

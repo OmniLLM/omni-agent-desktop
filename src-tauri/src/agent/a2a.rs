@@ -20,6 +20,34 @@ fn sanitize(s: &str) -> String {
         .collect()
 }
 
+/// FNV-1a 32-bit hash rendered as 8 hex chars. Deterministic and dependency-free.
+fn short_hash(s: &str) -> String {
+    let mut h: u32 = 0x811c_9dc5;
+    for b in s.bytes() {
+        h ^= b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    format!("{h:08x}")
+}
+
+/// Build a callable tool name within the 64-char limit that providers
+/// (OpenAI/GitHub Copilot) impose on function names. Uses a short connection
+/// prefix plus the sanitized skill id; when that overflows, it truncates the
+/// skill part and appends a hash so distinct skills never collide.
+fn make_tool_name(conn_id: &str, skill_id: &str) -> String {
+    let prefix: String = sanitize(conn_id).chars().take(8).collect();
+    let skill = sanitize(skill_id);
+    let name = format!("{prefix}__{skill}");
+    if name.len() <= 64 {
+        return name;
+    }
+    let hash = short_hash(skill_id); // 8 chars
+    // budget = 64 - prefix - "__"(2) - "_"(1) - hash(8)
+    let head_budget = 64 - prefix.len() - 2 - 1 - 8;
+    let skill_head: String = skill.chars().take(head_budget).collect();
+    format!("{prefix}__{skill_head}_{hash}")
+}
+
 /// Derive callable tools from a connection's agent card, skipping disabled skills.
 pub fn tools_from_card(conn: &A2aConnection, card: &Value) -> Vec<A2aTool> {
     let mut out = Vec::new();
@@ -34,7 +62,7 @@ pub fn tools_from_card(conn: &A2aConnection, card: &Value) -> Vec<A2aTool> {
                 continue;
             }
             out.push(A2aTool {
-                tool_name: format!("{}__{}", sanitize(&conn.id), sanitize(&skill_id)),
+                tool_name: make_tool_name(&conn.id, &skill_id),
                 connection_id: conn.id.clone(),
                 endpoint: conn.endpoint.clone(),
                 token: conn.token.clone(),
@@ -273,6 +301,25 @@ mod tests {
         let def = a2a_tool_definition(&tools[0]);
         assert_eq!(def["function"]["name"], "hub_1__search");
         assert_eq!(def["function"]["parameters"]["required"][0], "task");
+    }
+
+    #[test]
+    fn tool_names_stay_within_64_chars() {
+        // A real UUID connection id plus a long skill id would overflow the
+        // provider's 64-char function-name limit without truncation.
+        let uuid = "332cd3c0-d77a-4ea9-94e1-5c342c33d402";
+        let long = "omnilauncher.skill:slack_markdown_formatter_extra_long_name";
+        let name = make_tool_name(uuid, long);
+        assert!(name.len() <= 64, "name too long: {} ({})", name, name.len());
+    }
+
+    #[test]
+    fn truncated_tool_names_are_unique_per_skill() {
+        let uuid = "332cd3c0-d77a-4ea9-94e1-5c342c33d402";
+        let a = make_tool_name(uuid, "omnilauncher.skill:aws_very_long_suffix_number_one");
+        let b = make_tool_name(uuid, "omnilauncher.skill:aws_very_long_suffix_number_two");
+        assert_ne!(a, b);
+        assert!(a.len() <= 64 && b.len() <= 64);
     }
 
     #[test]

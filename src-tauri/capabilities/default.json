@@ -1,0 +1,20 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default permissions for the Omni Agent Desktop main window.",
+  "windows": ["main", "*"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:event:allow-emit",
+    "core:event:allow-emit-to",
+    "core:window:default",
+    "core:webview:default",
+    "core:app:default",
+    "core:path:default",
+    "core:resources:default",
+    "global-shortcut:default"
+  ]
+}

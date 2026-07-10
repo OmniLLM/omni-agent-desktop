@@ -12,6 +12,7 @@ pub enum ToolClass {
 }
 
 /// The seven built-in local tools.
+#[allow(dead_code)]
 pub const LOCAL_TOOLS: [&str; 7] = ["read", "ls", "glob", "grep", "write", "edit", "bash"];
 
 pub fn classify(tool: &str) -> ToolClass {

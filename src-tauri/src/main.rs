@@ -6,9 +6,11 @@ mod settings;
 use base64::Engine;
 use settings::AppSettings;
 use simplelog::{ColorChoice, ConfigBuilder, LevelFilter, TermLogger, TerminalMode, WriteLogger};
+use std::collections::HashMap;
 use std::{fs, io::Read, path::PathBuf, sync::{Arc, Mutex}};
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, State};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tokio::sync::oneshot;
 
 fn config_dir() -> PathBuf {
     dirs::home_dir()
@@ -28,6 +30,12 @@ fn settings_path() -> PathBuf {
     let dir = config_dir();
     let _ = fs::create_dir_all(&dir);
     dir.join("settings.json")
+}
+
+fn conversation_path() -> PathBuf {
+    let dir = config_dir();
+    let _ = fs::create_dir_all(&dir);
+    dir.join("conversation.json")
 }
 
 fn window_pos_path() -> PathBuf {
@@ -278,6 +286,224 @@ $img.Save('{}');"#,
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
+// ---------------------------------------------------------------------------
+// Agent runtime commands
+// ---------------------------------------------------------------------------
+
+#[derive(Default)]
+struct ApprovalRegistry(Mutex<HashMap<String, oneshot::Sender<agent::ApprovalDecision>>>);
+
+#[derive(Clone, serde::Serialize)]
+struct ToolCallEvent {
+    call_id: String,
+    tool: String,
+    args: serde_json::Value,
+}
+
+#[tauri::command]
+async fn approve_tool(
+    registry: State<'_, ApprovalRegistry>,
+    call_id: String,
+    decision: String,
+) -> Result<(), String> {
+    let sender = registry
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&call_id);
+    if let Some(tx) = sender {
+        let d = match decision.as_str() {
+            "approve" => agent::ApprovalDecision::Approve,
+            "allow_session" => agent::ApprovalDecision::AllowSession,
+            _ => agent::ApprovalDecision::Deny,
+        };
+        let _ = tx.send(d);
+    }
+    Ok(())
+}
+
+async fn call_provider(
+    client: &reqwest::Client,
+    config: &settings::ProviderConfig,
+    system: &str,
+    messages: &[agent::provider::Msg],
+    tools: &[serde_json::Value],
+) -> Result<agent::provider::ParsedTurn, String> {
+    let req = agent::provider::build_request(config, system, messages, tools);
+    let mut builder = client.post(&req.url).json(&req.body);
+    for (k, v) in &req.headers {
+        builder = builder.header(k, v);
+    }
+    let resp = builder.send().await.map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        let detail = body["error"]["message"]
+            .as_str()
+            .map(|s| format!(": {s}"))
+            .unwrap_or_default();
+        return Err(format!("provider HTTP {status}{detail}"));
+    }
+    Ok(agent::provider::parse_response(req.shape, &body))
+}
+
+#[tauri::command]
+async fn agent_run(
+    app: tauri::AppHandle,
+    registry: State<'_, ApprovalRegistry>,
+    message: String,
+    mode: agent::RunMode,
+) -> Result<(), String> {
+    let settings = load_desktop_settings();
+    let client = reqwest::Client::new();
+    let configs = settings.effective_provider_configs();
+    let config = configs
+        .get(settings.active_provider)
+        .cloned()
+        .unwrap_or_default();
+
+    // Build tool set: local + enabled A2A.
+    let mut tool_defs = agent::tools::tool_definitions();
+    let mut a2a_tools: Vec<agent::a2a::A2aTool> = Vec::new();
+    for conn in settings.a2a_connections.iter().filter(|c| c.enabled) {
+        if let Ok(card) = agent::a2a::fetch_card(&client, &conn.endpoint, &conn.token).await {
+            for t in agent::a2a::tools_from_card(conn, &card) {
+                tool_defs.push(agent::a2a::a2a_tool_definition(&t));
+                a2a_tools.push(t);
+            }
+        }
+    }
+
+    let system = "You are Omni Agent, a helpful desktop AI agent with local tools.";
+    let mut msgs = vec![agent::provider::Msg {
+        role: "user".into(),
+        content: message,
+    }];
+    let max = settings.ai_max_tool_iterations.max(1);
+    let mut session_allow: std::collections::HashSet<String> = Default::default();
+    let mut counter: u64 = 0;
+
+    for _ in 0..max {
+        let turn = match call_provider(&client, &config, system, &msgs, &tool_defs).await {
+            Ok(t) => t,
+            Err(e) => {
+                let _ = app.emit("agent://error", e.clone());
+                return Err(e);
+            }
+        };
+        if turn.tool_calls.is_empty() {
+            let _ = app.emit("agent://done", turn.text.clone());
+            return Ok(());
+        }
+        for call in &turn.tool_calls {
+            counter += 1;
+            let call_id = format!("call-{counter}");
+            let is_a2a = a2a_tools.iter().any(|t| t.tool_name == call.name);
+            let mutating = is_a2a
+                || agent::tools::classify(&call.name) == agent::tools::ToolClass::Mutating;
+            let _ = app.emit(
+                "agent://tool-call",
+                ToolCallEvent {
+                    call_id: call_id.clone(),
+                    tool: call.name.clone(),
+                    args: call.args.clone(),
+                },
+            );
+
+            let decision = match agent::gate(mode, mutating) {
+                agent::Gate::Auto => agent::ApprovalDecision::Approve,
+                agent::Gate::Block => {
+                    msgs.push(agent::provider::Msg {
+                        role: "user".into(),
+                        content: format!("[tool {} blocked in plan mode]", call.name),
+                    });
+                    continue;
+                }
+                agent::Gate::Approve => {
+                    if session_allow.contains(&call.name) {
+                        agent::ApprovalDecision::Approve
+                    } else {
+                        let (tx, rx) = oneshot::channel();
+                        if let Ok(mut map) = registry.0.lock() {
+                            map.insert(call_id.clone(), tx);
+                        }
+                        let _ = app.emit(
+                            "agent://tool-approval-request",
+                            ToolCallEvent {
+                                call_id: call_id.clone(),
+                                tool: call.name.clone(),
+                                args: call.args.clone(),
+                            },
+                        );
+                        rx.await.unwrap_or(agent::ApprovalDecision::Deny)
+                    }
+                }
+            };
+
+            let result = match decision {
+                agent::ApprovalDecision::Deny => format!("[tool {} denied by user]", call.name),
+                d => {
+                    if d == agent::ApprovalDecision::AllowSession {
+                        session_allow.insert(call.name.clone());
+                    }
+                    if is_a2a {
+                        let tool = a2a_tools
+                            .iter()
+                            .find(|t| t.tool_name == call.name)
+                            .unwrap();
+                        let task = call.args["task"].as_str().unwrap_or("").to_string();
+                        agent::a2a::delegate(&client, tool, &task)
+                            .await
+                            .unwrap_or_else(|e| format!("error: {e}"))
+                    } else {
+                        agent::tools::execute(&call.name, &call.args)
+                            .unwrap_or_else(|e| format!("error: {e}"))
+                    }
+                }
+            };
+            let _ = app.emit(
+                "agent://tool-result",
+                serde_json::json!({
+                    "call_id": call_id, "tool": call.name, "result": result }),
+            );
+            msgs.push(agent::provider::Msg {
+                role: "user".into(),
+                content: format!("[tool {} result]\n{result}", call.name),
+            });
+        }
+    }
+    let _ = app.emit(
+        "agent://done",
+        "stopped: max iterations reached".to_string(),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+async fn a2a_discover_card(connection_id: String) -> Result<serde_json::Value, String> {
+    let settings = load_desktop_settings();
+    let conn = settings
+        .a2a_connections
+        .iter()
+        .find(|c| c.id == connection_id)
+        .ok_or_else(|| "connection not found".to_string())?;
+    let client = reqwest::Client::new();
+    agent::a2a::fetch_card(&client, &conn.endpoint, &conn.token).await
+}
+
+#[tauri::command]
+fn load_conversation() -> serde_json::Value {
+    std::fs::read_to_string(conversation_path())
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| serde_json::json!([]))
+}
+
+#[tauri::command]
+fn save_conversation(messages: serde_json::Value) -> Result<(), String> {
+    settings::atomic_write(&conversation_path(), &messages.to_string())
+}
+
 fn main() {
     let debug = std::env::args().any(|a| a == "--debug");
     init_logging(debug);
@@ -287,6 +513,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(shortcut_slot.clone())
+        .manage(ApprovalRegistry::default())
         .setup(move |app| {
             let window = app.get_webview_window("main").expect("main window");
             window.center().ok();
@@ -305,6 +532,11 @@ fn main() {
             set_window_geometry,
             set_window_size_centered,
             capture_vision_screenshot,
+            agent_run,
+            approve_tool,
+            a2a_discover_card,
+            load_conversation,
+            save_conversation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Omni Agent Desktop");

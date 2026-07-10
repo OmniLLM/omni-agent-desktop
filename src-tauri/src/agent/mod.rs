@@ -82,7 +82,10 @@ pub trait Approver {
 
 /// Run the agent loop. `provider_call` maps the message list to a parsed turn.
 /// `run_tool` executes a resolved tool (local or A2A) and returns a result text.
-#[allow(clippy::too_many_arguments)]
+///
+/// This synchronous form is the reference implementation exercised by unit
+/// tests; `main.rs` runs an async mirror that awaits provider/A2A HTTP calls.
+#[allow(dead_code, clippy::too_many_arguments)]
 pub fn run_loop<P, T, A, M>(
     mode: RunMode,
     max_iterations: usize,

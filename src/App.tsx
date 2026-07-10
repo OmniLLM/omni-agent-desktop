@@ -32,6 +32,21 @@ export default function App() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
 
+  // Settings is invoked by Ctrl/Cmd+, (toggle) and dismissed by Escape —
+  // there is no visible settings button.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === ",") {
+        e.preventDefault();
+        setShowSettings((v) => !v);
+      } else if (e.key === "Escape") {
+        setShowSettings((v) => (v ? false : v));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <>
       <GlobalKeyframes />
@@ -42,23 +57,27 @@ export default function App() {
         isAiMode={true}
       >
         <div className="agent-root">
-          <button
-            className="settings-toggle"
-            onClick={() => setShowSettings((v) => !v)}
-          >
-            {showSettings ? "Close settings" : "Settings"}
-          </button>
           {showSettings ? (
-            <SettingsWindow onClose={() => setShowSettings(false)} />
-          ) : (
-            <div className="agent-main" ref={scrollRef}>
-              <ChatPane messages={messages} />
-              {pendingApproval ? (
-                <ToolApprovalPrompt call={pendingApproval} onDecide={decide} />
-              ) : null}
-              <Composer onSend={send} disabled={loading} />
+            <div
+              className="settings-overlay"
+              onMouseDown={(e) => {
+                if (e.target === e.currentTarget) setShowSettings(false);
+              }}
+            >
+              <div className="settings-sheet">
+                <SettingsWindow onClose={() => setShowSettings(false)} />
+              </div>
             </div>
-          )}
+          ) : null}
+          <div className="agent-main">
+            <div className="chat-scroll" ref={scrollRef}>
+              <ChatPane messages={messages} />
+            </div>
+            {pendingApproval ? (
+              <ToolApprovalPrompt call={pendingApproval} onDecide={decide} />
+            ) : null}
+            <Composer onSend={send} disabled={loading} />
+          </div>
         </div>
       </AppShell>
     </>

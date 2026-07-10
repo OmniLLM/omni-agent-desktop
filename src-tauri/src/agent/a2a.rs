@@ -204,6 +204,9 @@ pub async fn fetch_card(
     token: &str,
 ) -> Result<Value, String> {
     let base = normalize(endpoint);
+    if base.is_empty() {
+        return Err("A2A endpoint is required".into());
+    }
     let mut last = String::new();
     for path in ["/.well-known/agent-card.json", "/.well-known/agent.json"] {
         let mut req = client.get(format!("{base}{path}"));
@@ -214,11 +217,27 @@ pub async fn fetch_card(
             Ok(r) if r.status().is_success() => {
                 return r.json::<Value>().await.map_err(|e| e.to_string());
             }
-            Ok(r) => last = format!("HTTP {}", r.status()),
-            Err(e) => last = e.to_string(),
+            Ok(r) => last = format!("{path}: HTTP {}", r.status()),
+            Err(e) => last = format!("{path}: {}", describe_reqwest_error(&e)),
         }
     }
     Err(format!("A2A discovery failed: {last}"))
+}
+
+/// Produce an actionable message from a reqwest error, walking its source chain
+/// so opaque wrappers like "builder error" surface their real cause.
+fn describe_reqwest_error(e: &reqwest::Error) -> String {
+    use std::error::Error;
+    let mut parts = vec![e.to_string()];
+    let mut src = e.source();
+    while let Some(s) = src {
+        let msg = s.to_string();
+        if !parts.contains(&msg) {
+            parts.push(msg);
+        }
+        src = s.source();
+    }
+    parts.join(": ")
 }
 
 #[cfg(test)]

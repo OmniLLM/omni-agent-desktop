@@ -322,6 +322,17 @@ async fn approve_tool(
     Ok(())
 }
 
+/// Build the shared HTTP client. Proxy support is disabled: providers and A2A
+/// endpoints are typically local (localhost/127.0.0.1) and must not be routed
+/// through a corporate proxy, which is the usual cause of an opaque reqwest
+/// "builder error" when HTTP(S)_PROXY is set in the environment.
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
 async fn call_provider(
     client: &reqwest::Client,
     config: &settings::ProviderConfig,
@@ -355,7 +366,7 @@ async fn agent_run(
     mode: agent::RunMode,
 ) -> Result<(), String> {
     let settings = load_desktop_settings();
-    let client = reqwest::Client::new();
+    let client = http_client();
     let configs = settings.effective_provider_configs();
     let config = configs
         .get(settings.active_provider)
@@ -487,8 +498,63 @@ async fn a2a_discover_card(connection_id: String) -> Result<serde_json::Value, S
         .iter()
         .find(|c| c.id == connection_id)
         .ok_or_else(|| "connection not found".to_string())?;
-    let client = reqwest::Client::new();
+    let client = http_client();
     agent::a2a::fetch_card(&client, &conn.endpoint, &conn.token).await
+}
+
+/// Discover models from a provider's `/models` endpoint. Accepts the common
+/// `data[].id` (OpenAI-style) and `models[].name`/`models[].id` shapes. Auth is
+/// sent as both Bearer and `x-api-key` so it works across OpenAI-compatible and
+/// Anthropic-style gateways.
+#[tauri::command]
+async fn list_models(base_url: String, api_key: String) -> Result<Vec<String>, String> {
+    let base = agent::provider::normalize_endpoint(&base_url);
+    if base.is_empty() {
+        return Err("Provider URL is required".into());
+    }
+    let client = http_client();
+    let key = api_key.trim();
+    let mut req = client.get(format!("{base}/models"));
+    if !key.is_empty() {
+        req = req
+            .header("authorization", format!("Bearer {key}"))
+            .header("x-api-key", key);
+    }
+    let resp = req.send().await.map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        let detail = body["error"]["message"]
+            .as_str()
+            .map(|s| format!(": {s}"))
+            .unwrap_or_default();
+        return Err(format!("HTTP {status}{detail}"));
+    }
+
+    let mut models: Vec<String> = Vec::new();
+    let mut push = |v: &serde_json::Value| {
+        if let Some(arr) = v.as_array() {
+            for m in arr {
+                let id = m["id"]
+                    .as_str()
+                    .or_else(|| m["name"].as_str())
+                    .or_else(|| m.as_str());
+                if let Some(id) = id {
+                    if !id.is_empty() && !models.iter().any(|x| x == id) {
+                        models.push(id.to_string());
+                    }
+                }
+            }
+        }
+    };
+    push(&body["data"]);
+    push(&body["models"]);
+    push(&body); // bare array response
+    if models.is_empty() {
+        return Err("No models found in provider response".into());
+    }
+    models.sort();
+    Ok(models)
 }
 
 #[tauri::command]
@@ -535,6 +601,7 @@ fn main() {
             agent_run,
             approve_tool,
             a2a_discover_card,
+            list_models,
             load_conversation,
             save_conversation,
         ])

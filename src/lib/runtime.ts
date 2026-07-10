@@ -131,6 +131,7 @@ const TAURI_NATIVE_COMMANDS = new Set<string>([
   "agent_run",
   "approve_tool",
   "a2a_discover_card",
+  "list_models",
   "load_conversation",
   "save_conversation",
 ]);

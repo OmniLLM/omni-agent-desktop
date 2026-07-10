@@ -388,7 +388,12 @@ async fn agent_run(
         }
     }
 
-    let system = "You are Omni Agent, a helpful desktop AI agent with local tools.";
+    let system = "You are Omni Agent, a helpful desktop AI agent with local tools and A2A skills.\n\
+        Always format your final answer as clean, well-structured Markdown:\n\
+        - Use headings, bold for key figures, and bullet lists for related items.\n\
+        - Present tabular or multi-field data as a Markdown table.\n\
+        - Put code, commands, paths, and identifiers in backticks or fenced code blocks.\n\
+        - Lead with the direct answer, then supporting detail; keep it concise and easy to scan.";
     let mut msgs = vec![agent::provider::Msg {
         role: "user".into(),
         content: message,

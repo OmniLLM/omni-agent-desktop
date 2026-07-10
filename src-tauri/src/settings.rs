@@ -121,6 +121,25 @@ impl Default for ProviderConfigMap {
 }
 
 // ---------------------------------------------------------------------------
+// A2A connections
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct A2aConnection {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    pub endpoint: String,
+    #[serde(default)]
+    pub token: String,
+    #[serde(default)]
+    pub enabled: bool,
+    /// Skill ids explicitly disabled by the user.
+    #[serde(default)]
+    pub disabled_skills: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
 // AppSettings
 // ---------------------------------------------------------------------------
 
@@ -180,6 +199,10 @@ pub struct AppSettings {
     pub max_results: usize,
     #[serde(default)]
     pub background_url: String,
+    #[serde(default)]
+    pub a2a_connections: Vec<A2aConnection>,
+    #[serde(default)]
+    pub run_mode: crate::agent::RunMode,
     /// Deprecated compatibility field. Desktop no longer uses or defaults an
     /// OmniLauncher REST backend URL; task/tool execution is A2A.
     #[serde(default)]
@@ -203,6 +226,8 @@ impl Default for AppSettings {
             hotkey: default_hotkey(),
             max_results: default_max_results(),
             background_url: String::new(),
+            a2a_connections: Vec::new(),
+            run_mode: crate::agent::RunMode::default(),
             backend_url: String::new(),
         }
     }
@@ -472,6 +497,13 @@ mod tests {
         ));
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn a2a_connections_default_empty_and_roundtrip() {
+        let s: AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(s.a2a_connections.is_empty());
+        assert_eq!(s.run_mode, crate::agent::RunMode::Ask);
     }
 
     // --- Legacy migration ---------------------------------------------------

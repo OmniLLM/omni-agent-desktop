@@ -71,7 +71,7 @@ export default function App() {
           ) : null}
           <div className="agent-main">
             <div className="chat-scroll" ref={scrollRef}>
-              <ChatPane messages={messages} />
+              <ChatPane messages={messages} loading={loading} />
             </div>
             {pendingApproval ? (
               <ToolApprovalPrompt call={pendingApproval} onDecide={decide} />

@@ -12,7 +12,13 @@ const THINKING_LABEL: Record<string, string> = {
   result: "Result",
 };
 
-export default function ChatPane({ messages }: { messages: ChatMessage[] }) {
+export default function ChatPane({
+  messages,
+  loading = false,
+}: {
+  messages: ChatMessage[];
+  loading?: boolean;
+}) {
   return (
     <div className="chat-pane">
       {messages.map((m, i) => {
@@ -38,6 +44,16 @@ export default function ChatPane({ messages }: { messages: ChatMessage[] }) {
           </div>
         );
       })}
+      {loading ? (
+        <div className="thinking-indicator" role="status" aria-live="polite">
+          <span className="thinking-dots" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </span>
+          <span className="thinking-text">Thinking…</span>
+        </div>
+      ) : null}
     </div>
   );
 }

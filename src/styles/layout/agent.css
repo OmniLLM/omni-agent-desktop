@@ -30,7 +30,9 @@
   scroll-behavior: smooth;
 }
 
-/* Center the conversation in a comfortable reading column. */
+/* Center the conversation in a comfortable reading column. Horizontal padding
+   scales with the viewport so the column stays centered and breathes at any
+   window width. */
 .chat-pane {
   display: flex;
   flex-direction: column;
@@ -38,7 +40,7 @@
   width: 100%;
   max-width: 760px;
   margin: 0 auto;
-  padding: 28px 24px 12px;
+  padding: 28px clamp(16px, 5vw, 40px) 12px;
   box-sizing: border-box;
   min-height: 100%;
 }
@@ -181,6 +183,65 @@
   color: var(--sub);
 }
 
+/* === Thinking indicator ===
+   Shown while a run is in flight (the agent is working) so the user always sees
+   progress, even before the first token arrives. */
+.thinking-indicator {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 15px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-bottom-left-radius: 5px;
+  background: var(--ai-bubble);
+  box-shadow: var(--shadow);
+  animation: agent-bubble-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.thinking-text {
+  font-size: 13.5px;
+  color: var(--sub);
+  letter-spacing: 0.01em;
+}
+
+.thinking-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.thinking-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.4;
+  animation: thinking-bounce 1.2s ease-in-out infinite;
+}
+
+.thinking-dots span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.thinking-dots span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes thinking-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
 /* === Composer === */
 .composer {
   flex-shrink: 0;
@@ -189,9 +250,9 @@
   margin: 0 auto;
   display: grid;
   grid-template-columns: 1fr auto;
-  align-items: end;
+  align-items: stretch;
   gap: 10px;
-  padding: 14px 24px 20px;
+  padding: 14px clamp(16px, 5vw, 40px) 20px;
   box-sizing: border-box;
 }
 
@@ -205,7 +266,7 @@
   border-radius: 14px;
   padding: 12px 15px;
   resize: none;
-  min-height: 46px;
+  min-height: 48px;
   max-height: 168px;
   transition:
     border-color 0.16s ease,
@@ -231,7 +292,13 @@
   background: var(--accent);
   border: none;
   border-radius: 14px;
-  padding: 13px 22px;
+  /* Vertical padding is 0 so the button stretches to the textarea's height
+     (align-items: stretch); the label is centered by the flex box. */
+  padding: 0 24px;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   transition:
     filter 0.16s ease,

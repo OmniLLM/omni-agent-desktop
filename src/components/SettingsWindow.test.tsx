@@ -72,6 +72,8 @@ const realSettings: AppSettings = {
   hotkey: "Ctrl+Shift+O",
   max_results: 25,
   background_url: "https://example.com/bg.png",
+  a2a_connections: [],
+  run_mode: "ask",
   backend_url: "http://wsl-backend:1422",
 };
 
@@ -103,12 +105,29 @@ describe("SettingsWindow A2A architecture", () => {
     expect(
       screen.getByText(/connect to omni-agent-hub or direct a2a agents/i),
     ).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/http:\/\/127\.0\.0\.1:8222/i)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/http:\/\/127\.0\.0\.1:1423/i)).toBeInTheDocument();
+    // Client-side connection list, not server/admin registration.
     expect(screen.queryByText("A2A Server")).not.toBeInTheDocument();
     expect(screen.queryByText(/Hub Admin Key/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Auto-register/i)).not.toBeInTheDocument();
   });
+
+  it("adds an A2A connection with an editable endpoint field", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_settings") return realSettings;
+      if (cmd === "list_models") return ["gpt-5.4"];
+      return undefined;
+    });
+
+    const SettingsWindow = await importSettingsWindow();
+    render(<SettingsWindow />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /a2a/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /add connection/i }),
+    );
+    expect(screen.getByLabelText(/endpoint-0/i)).toBeInTheDocument();
+  });
+
   it("does not expose legacy OmniLauncher REST backend settings", async () => {
     invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === "get_settings") return realSettings;

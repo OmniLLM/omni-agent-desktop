@@ -1,34 +1,28 @@
-export interface QueryResult {
-  id: string;
-  title: string;
-  subtitle?: string;
-  icon?: string;
-  score: number;
-  action_type: string;
-  action_data: string;
-  source?: string;
-}
+export type RunMode = "plan" | "ask" | "autopilot";
 
-export interface AiResponse {
-  content: string;
-  tools_used: string[];
-  results: QueryResult[];
-  is_ai: boolean;
-}
-
-export interface ConversationTurn {
+export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   tools_used?: string[];
   isStreaming?: boolean;
 }
 
-export interface AiSessionInfo {
-  id: number;
-  title: string;
-  created_at: string;
-  last_active_at: string;
-  message_count: number;
+/** Transitional alias for components still importing the old name. */
+export type ConversationTurn = ChatMessage;
+
+export interface A2aConnection {
+  id: string;
+  name: string;
+  endpoint: string;
+  token: string;
+  enabled: boolean;
+  disabled_skills: string[];
+}
+
+export interface ToolCallEvent {
+  call_id: string;
+  tool: string;
+  args: Record<string, unknown>;
 }
 
 export type ProviderType =
@@ -65,50 +59,18 @@ export interface AppSettings {
   ai_max_retry_attempts: number;
   ai_retry_base_delay_ms: number;
   /** When true (default), the agentic tool loop halts after detecting three
-   * identical (request, result) iterations in a row. Disable for advanced
-   * debugging of long multi-step skills — `ai_max_tool_iterations` is still
-   * the upper bound. */
+   * identical (request, result) iterations in a row. */
   ai_loop_detector_enabled: boolean;
   theme: string;
   hotkey: string;
   max_results: number;
   background_url: string;
+  /** Configured A2A agents/hubs whose enabled skills become callable tools. */
+  a2a_connections: A2aConnection[];
+  /** Default run mode for the agent loop. */
+  run_mode: RunMode;
   /** Deprecated compatibility field. Desktop no longer connects to the
    * OmniLauncher REST backend; task/tool execution uses A2A endpoints. */
   backend_url: string;
 }
 
-export interface PluginInfo {
-  name: string;
-  description: string;
-  version: string;
-  keyword?: string;
-  icon?: string;
-  entry: string;
-  dir_name: string;
-}
-
-export interface RuntimeDependency {
-  id: string;
-  label: string;
-  installed: boolean;
-  installable: boolean;
-  install_command?: string | null;
-  detail: string;
-}
-
-export interface RuntimeProgressEvent {
-  id: string;
-  label: string;
-  message: string;
-}
-
-export interface SkillInfo {
-  name: string;
-  description: string;
-  version: string;
-  triggers: string[];
-  tags: string[];
-  tools_hint: string[];
-  path: string;
-}

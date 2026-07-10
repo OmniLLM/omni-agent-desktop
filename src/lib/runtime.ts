@@ -128,6 +128,11 @@ const TAURI_NATIVE_COMMANDS = new Set<string>([
   "get_settings",
   "save_settings_cmd",
   "set_hotkey_cmd",
+  "agent_run",
+  "approve_tool",
+  "a2a_discover_card",
+  "load_conversation",
+  "save_conversation",
 ]);
 
 function isNativeCommand(cmd: string): boolean {

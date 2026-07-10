@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, emit } from "../lib/runtime";
-import type { AppSettings } from "../types/app";
+import type { AppSettings, A2aConnection } from "../types/app";
 
 const BG_PRESETS = [
   { label: "None (solid color)", value: "" },
@@ -99,6 +99,7 @@ export default function SettingsWindow({ onClose }: Props = {}) {
   const [modelsError, setModelsError] = useState("");
   const [modelFilter, setModelFilter] = useState("");
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [a2aDiscovery, setA2aDiscovery] = useState<Record<string, string>>({});
   const modelInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -199,6 +200,68 @@ export default function SettingsWindow({ onClose }: Props = {}) {
     } catch (e) {
       console.error("Save error:", e);
       setSaveStatus("error");
+    }
+  };
+
+  const updateA2a = (index: number, patch: Partial<A2aConnection>) => {
+    setSettings(
+      (s) =>
+        s && {
+          ...s,
+          a2a_connections: (s.a2a_connections ?? []).map((c, i) =>
+            i === index ? { ...c, ...patch } : c,
+          ),
+        },
+    );
+  };
+
+  const addA2a = () => {
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `a2a-${Date.now()}`;
+    const conn: A2aConnection = {
+      id,
+      name: "",
+      endpoint: "",
+      token: "",
+      enabled: true,
+      disabled_skills: [],
+    };
+    setSettings(
+      (s) =>
+        s && { ...s, a2a_connections: [...(s.a2a_connections ?? []), conn] },
+    );
+  };
+
+  const removeA2a = (index: number) => {
+    setSettings(
+      (s) =>
+        s && {
+          ...s,
+          a2a_connections: (s.a2a_connections ?? []).filter(
+            (_, i) => i !== index,
+          ),
+        },
+    );
+  };
+
+  const discoverA2a = async (connectionId: string) => {
+    setA2aDiscovery((prev) => ({ ...prev, [connectionId]: "discovering…" }));
+    try {
+      const card = await invoke<{ skills?: unknown[] }>("a2a_discover_card", {
+        connectionId,
+      });
+      const count = Array.isArray(card?.skills) ? card.skills.length : 0;
+      setA2aDiscovery((prev) => ({
+        ...prev,
+        [connectionId]: `${count} skill(s)`,
+      }));
+    } catch (e) {
+      setA2aDiscovery((prev) => ({
+        ...prev,
+        [connectionId]: `error: ${e instanceof Error ? e.message : String(e)}`,
+      }));
     }
   };
 
@@ -767,59 +830,99 @@ export default function SettingsWindow({ onClose }: Props = {}) {
             {activeTab === "a2a" && (
               <div>
                 <div className="settings-section-header">A2A Connections</div>
-                <div style={{ color: "var(--sub)", fontSize: 13, marginBottom: 12 }}>
-                  Connect to omni-agent-hub or direct A2A agents to extend desktop capabilities.
+                <div
+                  style={{ color: "var(--sub)", fontSize: 13, marginBottom: 12 }}
+                >
+                  Connect to omni-agent-hub or direct A2A agents. Each enabled
+                  connection's skills become callable tools for the agent.
                 </div>
-                <div className="settings-card">
-                  <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>Hub Endpoint</span>
-                    <input
-                      className="omni-input"
-                      type="text"
-                      placeholder="http://127.0.0.1:8222"
-                      defaultValue={typeof window !== "undefined" ? window.localStorage.getItem("omni-a2a-hub-endpoint") ?? "" : ""}
-                      onChange={(e) => {
-                        try { window.localStorage.setItem("omni-a2a-hub-endpoint", e.target.value); } catch {}
-                      }}
-                    />
+                {(settings.a2a_connections ?? []).map((conn, idx) => (
+                  <div
+                    key={conn.id}
+                    className="settings-card"
+                    style={{ marginBottom: 12 }}
+                  >
+                    <div style={rowStyle()}>
+                      <span style={rowLabelStyle}>Name</span>
+                      <input
+                        className="omni-input"
+                        aria-label={`name-${idx}`}
+                        value={conn.name}
+                        onChange={(e) =>
+                          updateA2a(idx, { name: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div style={rowStyle()}>
+                      <span style={rowLabelStyle}>Endpoint</span>
+                      <input
+                        className="omni-input"
+                        aria-label={`endpoint-${idx}`}
+                        placeholder="http://127.0.0.1:8222"
+                        value={conn.endpoint}
+                        onChange={(e) =>
+                          updateA2a(idx, { endpoint: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div style={rowStyle()}>
+                      <span style={rowLabelStyle}>Token</span>
+                      <input
+                        className="omni-input"
+                        type="password"
+                        aria-label={`token-${idx}`}
+                        placeholder="(optional bearer token)"
+                        value={conn.token}
+                        onChange={(e) =>
+                          updateA2a(idx, { token: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div style={rowStyle(true)}>
+                      <span style={rowLabelStyle}>Enabled</span>
+                      <div
+                        style={{ display: "flex", gap: 10, alignItems: "center" }}
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={`enabled-${idx}`}
+                          checked={conn.enabled}
+                          onChange={(e) =>
+                            updateA2a(idx, { enabled: e.target.checked })
+                          }
+                        />
+                        <button
+                          type="button"
+                          className="omni-btn"
+                          onClick={() => discoverA2a(conn.id)}
+                        >
+                          Discover
+                        </button>
+                        <button
+                          type="button"
+                          className="omni-btn"
+                          onClick={() => removeA2a(idx)}
+                        >
+                          Remove
+                        </button>
+                        {a2aDiscovery[conn.id] ? (
+                          <span
+                            style={{ fontSize: 12, color: "var(--sub)" }}
+                          >
+                            {a2aDiscovery[conn.id]}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
-                  <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>Hub Token</span>
-                    <input
-                      className="omni-input"
-                      type="password"
-                      placeholder="Hub api_key (client bearer)"
-                      defaultValue={typeof window !== "undefined" ? window.localStorage.getItem("omni-a2a-hub-token") ?? "" : ""}
-                      onChange={(e) => {
-                        try { window.localStorage.setItem("omni-a2a-hub-token", e.target.value); } catch {}
-                      }}
-                    />
-                  </div>
-                  <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>Direct Agent</span>
-                    <input
-                      className="omni-input"
-                      type="text"
-                      placeholder="http://127.0.0.1:1423"
-                      defaultValue={typeof window !== "undefined" ? window.localStorage.getItem("omni-a2a-direct-endpoint") ?? "" : ""}
-                      onChange={(e) => {
-                        try { window.localStorage.setItem("omni-a2a-direct-endpoint", e.target.value); } catch {}
-                      }}
-                    />
-                  </div>
-                  <div style={rowStyle(true)}>
-                    <span style={rowLabelStyle}>Agent Token</span>
-                    <input
-                      className="omni-input"
-                      type="password"
-                      placeholder="Direct agent bearer token"
-                      defaultValue={typeof window !== "undefined" ? window.localStorage.getItem("omni-a2a-direct-token") ?? "" : ""}
-                      onChange={(e) => {
-                        try { window.localStorage.setItem("omni-a2a-direct-token", e.target.value); } catch {}
-                      }}
-                    />
-                  </div>
-                </div>
+                ))}
+                <button
+                  type="button"
+                  className="omni-btn omni-btn--primary"
+                  onClick={addA2a}
+                >
+                  Add connection
+                </button>
               </div>
             )}
           </div>

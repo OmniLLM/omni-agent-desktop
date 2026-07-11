@@ -43,10 +43,13 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
     listen: vi.fn(async () => () => {}),
     onFocusChanged: vi.fn(async () => () => {}),
     setSize: vi.fn(async () => {}),
-    currentMonitor: vi.fn(async () => ({
-      size: { width: 1920, height: 1080 },
-      scaleFactor: 1,
-    })),
+  })),
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  currentMonitor: vi.fn(async () => ({
+    size: { width: 1920, height: 1080 },
+    scaleFactor: 1,
   })),
 }));
 

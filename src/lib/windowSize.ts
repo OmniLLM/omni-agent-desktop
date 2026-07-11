@@ -1,4 +1,5 @@
 import { LogicalSize } from "@tauri-apps/api/dpi";
+import { currentMonitor } from "@tauri-apps/api/window";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { WindowSizePreset } from "../types/app";
 
@@ -15,7 +16,7 @@ export function normalizeWindowSize(value: unknown): WindowSizePreset {
 export async function applyWindowSize(preset: WindowSizePreset): Promise<void> {
   const option = WINDOW_SIZE_OPTIONS.find((item) => item.value === preset)!;
   const win = getCurrentWebviewWindow();
-  const monitor = await win.currentMonitor().catch(() => null);
+  const monitor = await currentMonitor().catch(() => null);
   const scale = monitor?.scaleFactor || 1;
   const maxWidth = monitor
     ? Math.floor(monitor.size.width / scale)

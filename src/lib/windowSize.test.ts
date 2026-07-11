@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { currentMonitor } from "@tauri-apps/api/window";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   applyWindowSize,
@@ -7,15 +8,16 @@ import {
 } from "./windowSize";
 
 const currentWindow = vi.mocked(getCurrentWebviewWindow);
+const monitor = vi.mocked(currentMonitor);
 
 describe("windowSize", () => {
   beforeEach(() => {
     currentWindow.mockReturnValue({
       setSize: vi.fn(async () => undefined),
-      currentMonitor: vi.fn(async () => ({
-        size: { width: 1920, height: 1080 },
-        scaleFactor: 1,
-      })),
+    } as never);
+    monitor.mockResolvedValue({
+      size: { width: 1920, height: 1080 },
+      scaleFactor: 1,
     } as never);
   });
 
@@ -42,7 +44,7 @@ describe("windowSize", () => {
 
   it("clamps a preset to the monitor work area", async () => {
     const win = currentWindow();
-    vi.mocked(win.currentMonitor).mockResolvedValue({
+    monitor.mockResolvedValue({
       size: { width: 800, height: 600 },
       scaleFactor: 1,
     } as never);

@@ -190,6 +190,42 @@ describe("command classification", () => {
 });
 
 // ===========================================================================
+// 1b. Native provider command routing
+// ===========================================================================
+
+describe("native provider model listing", () => {
+  afterEach(cleanupGlobals);
+
+  it("routes list_provider_models to local Tauri in the desktop shell", async () => {
+    const state = mockBackend();
+    (globalThis as any).window.__TAURI_INTERNALS__ = {};
+    const result = { models: ["gpt-4", "gpt-4o"] };
+    vi.mocked(tauriInvoke).mockResolvedValue(result);
+
+    await expect(
+      invoke("list_provider_models", {
+        providerType: "custom-provider",
+        draftConfig: {
+          endpoint: "https://api.example.com",
+          api_key: "sk-x",
+          api_shape: "openai-compatible",
+          model: "",
+          manual_models: "",
+        },
+      }),
+    ).resolves.toEqual(result);
+
+    // Native command: never falls through to the HTTP backend.
+    const call = state.calls.find((c) => c.url.includes("/api/"));
+    expect(call).toBeUndefined();
+    expect(tauriInvoke).toHaveBeenCalledWith(
+      "list_provider_models",
+      expect.objectContaining({ providerType: "custom-provider" }),
+    );
+  });
+});
+
+// ===========================================================================
 // 2. Backend mode detection
 // ===========================================================================
 

@@ -1,7 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod providers;
+mod settings;
+
 use base64::Engine;
-use serde::{Deserialize, Serialize};
+use providers::{list_provider_models_core, ProviderModelsResult};
+use settings::{AppSettings, ProviderConfig, ProviderType};
 use simplelog::{ColorChoice, ConfigBuilder, LevelFilter, TermLogger, TerminalMode, WriteLogger};
 use std::{fs, io::Read, path::PathBuf, sync::{Arc, Mutex}};
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, State};
@@ -40,89 +44,14 @@ fn debug_log_path() -> PathBuf {
         .join("desktop.log")
 }
 
-fn default_ai_timeout_secs() -> u64 { 120 }
-fn default_ai_max_tool_iterations() -> usize { 10 }
-fn default_ai_max_retry_attempts() -> u32 { 3 }
-fn default_ai_retry_base_delay_ms() -> u64 { 2000 }
-fn default_ai_loop_detector_enabled() -> bool { true }
-fn default_theme() -> String { "system".to_string() }
-fn default_hotkey() -> String { "Ctrl+Shift+O".to_string() }
-fn default_max_results() -> usize { 10 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct AppSettings {
-    #[serde(default)]
-    ai_base_url: String,
-    #[serde(default)]
-    ai_model: String,
-    #[serde(default)]
-    ai_api_key: String,
-    #[serde(default = "default_ai_timeout_secs")]
-    ai_timeout_secs: u64,
-    #[serde(default = "default_ai_max_tool_iterations")]
-    ai_max_tool_iterations: usize,
-    #[serde(default = "default_ai_max_retry_attempts")]
-    ai_max_retry_attempts: u32,
-    #[serde(default = "default_ai_retry_base_delay_ms")]
-    ai_retry_base_delay_ms: u64,
-    #[serde(default = "default_ai_loop_detector_enabled")]
-    ai_loop_detector_enabled: bool,
-    #[serde(default = "default_theme")]
-    theme: String,
-    #[serde(default = "default_hotkey")]
-    hotkey: String,
-    #[serde(default = "default_max_results")]
-    max_results: usize,
-    #[serde(default)]
-    background_url: String,
-    /// Deprecated compatibility field. Desktop no longer uses or defaults an
-    /// OmniLauncher REST backend URL; task/tool execution is A2A.
-    #[serde(default)]
-    backend_url: String,
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            ai_base_url: String::new(),
-            ai_model: String::new(),
-            ai_api_key: String::new(),
-            ai_timeout_secs: default_ai_timeout_secs(),
-            ai_max_tool_iterations: default_ai_max_tool_iterations(),
-            ai_max_retry_attempts: default_ai_max_retry_attempts(),
-            ai_retry_base_delay_ms: default_ai_retry_base_delay_ms(),
-            ai_loop_detector_enabled: default_ai_loop_detector_enabled(),
-            theme: default_theme(),
-            hotkey: default_hotkey(),
-            max_results: default_max_results(),
-            background_url: String::new(),
-            backend_url: String::new(),
-        }
-    }
-}
-
 #[derive(Clone)]
 struct ShortcutSlot(Arc<Mutex<Option<Shortcut>>>);
 
-fn read_settings_from(path: PathBuf) -> Option<AppSettings> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|text| serde_json::from_str::<AppSettings>(&text).ok())
-}
-
 fn load_desktop_settings() -> AppSettings {
-    read_settings_from(settings_path())
-        .or_else(|| read_settings_from(legacy_omnilauncher_config_dir().join("settings.json")))
-        .unwrap_or_default()
-}
-
-fn save_desktop_settings(settings: &AppSettings) -> Result<(), String> {
-    let path = settings_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    fs::write(path, json).map_err(|e| e.to_string())
+    settings::load_settings(
+        &settings_path(),
+        &legacy_omnilauncher_config_dir().join("settings.json"),
+    )
 }
 
 fn init_logging(debug: bool) {
@@ -236,16 +165,25 @@ fn get_settings() -> AppSettings {
 
 #[tauri::command]
 fn save_settings_cmd(settings: AppSettings) -> Result<AppSettings, String> {
-    save_desktop_settings(&settings)?;
-    Ok(settings)
+    settings::save_settings(&settings_path(), settings, false)
 }
 
 #[tauri::command]
 fn set_hotkey_cmd(app: tauri::AppHandle, slot: State<'_, ShortcutSlot>, settings: AppSettings) -> Result<AppSettings, String> {
     let shortcut = parse_shortcut(&settings.hotkey).ok_or_else(|| format!("Invalid hotkey: {}", settings.hotkey))?;
     register_shortcut(&app, &slot, shortcut)?;
-    save_desktop_settings(&settings)?;
-    Ok(settings)
+    settings::save_settings(&settings_path(), settings, false)
+}
+
+#[tauri::command]
+async fn list_provider_models(
+    provider_type: ProviderType,
+    draft_config: ProviderConfig,
+) -> Result<ProviderModelsResult, String> {
+    let client = reqwest::Client::new();
+    list_provider_models_core(&client, provider_type, &draft_config)
+        .await
+        .map_err(|e| e.message)
 }
 
 #[tauri::command]
@@ -374,6 +312,7 @@ fn main() {
             get_settings,
             save_settings_cmd,
             set_hotkey_cmd,
+            list_provider_models,
             frontend_log,
             save_window_position,
             set_window_geometry,

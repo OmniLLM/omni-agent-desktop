@@ -128,6 +128,7 @@ const TAURI_NATIVE_COMMANDS = new Set<string>([
   "get_settings",
   "save_settings_cmd",
   "set_hotkey_cmd",
+  "list_provider_models",
 ]);
 
 function isNativeCommand(cmd: string): boolean {
@@ -572,6 +573,30 @@ export async function invoke<T = unknown>(
       ai_base_url: "",
       ai_api_key: "",
       ai_model: "gpt-4",
+      active_provider: "custom-provider",
+      provider_configs: {
+        "custom-provider": {
+          endpoint: "",
+          api_key: "",
+          api_shape: "openai-compatible",
+          model: "gpt-4",
+          manual_models: "",
+        },
+        "github-copilot": {
+          endpoint: "",
+          api_key: "",
+          api_shape: "openai-compatible",
+          model: "",
+          manual_models: "",
+        },
+        "azure-foundry": {
+          endpoint: "",
+          api_key: "",
+          api_shape: "openai-compatible",
+          model: "",
+          manual_models: "",
+        },
+      },
       ai_timeout_secs: 120,
       ai_max_tool_iterations: 10,
       theme: "system",

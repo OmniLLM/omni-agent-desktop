@@ -16,6 +16,8 @@ dirs = "5"
 log = "0.4"
 simplelog = "0.12"
 base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

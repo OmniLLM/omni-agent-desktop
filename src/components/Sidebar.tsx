@@ -48,17 +48,18 @@ export default function Sidebar({
   return (
     <aside className="sidebar" aria-label="Workspace navigation">
       <div className="sidebar__header">
-        <span className="sidebar__brand">
-          Omni <span className="sidebar__brand-accent">Agent</span>
-        </span>
         <button
           type="button"
           className="sidebar__icon-btn"
-          aria-label="Collapse sidebar"
+          aria-label="Hide sidebar"
+          title="Hide sidebar"
           onClick={onToggleCollapse}
         >
-          ▐
+          ⇤
         </button>
+        <span className="sidebar__brand">
+          Agent <span className="sidebar__brand-accent">Desktop</span>
+        </span>
       </div>
 
       <nav className="sidebar__nav">

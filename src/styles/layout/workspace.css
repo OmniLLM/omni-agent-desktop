@@ -28,8 +28,7 @@
 .sidebar__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   padding: 16px 16px 12px;
 }
 
@@ -202,6 +201,7 @@
 
 /* === Main pane === */
 .workspace-main {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -215,6 +215,31 @@
   min-height: 0;
   overflow-y: auto;
   scroll-behavior: smooth;
+}
+
+/* Floating button to restore the sidebar when collapsed */
+.sidebar-show {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-show:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 /* === Welcome empty-state === */

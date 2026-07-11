@@ -188,6 +188,17 @@ export default function App() {
           )}
 
           <div className="workspace-main">
+            {collapsed ? (
+              <button
+                type="button"
+                className="sidebar-show"
+                aria-label="Show sidebar"
+                title="Show sidebar"
+                onClick={() => setCollapsed(false)}
+              >
+                ⇥
+              </button>
+            ) : null}
             {view === "chat" ? (
               <>
                 <div className="workspace-main__scroll" ref={scrollRef}>

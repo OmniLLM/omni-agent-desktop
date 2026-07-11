@@ -31,10 +31,35 @@ export interface AiSessionInfo {
   message_count: number;
 }
 
+export type ProviderType =
+  | "custom-provider"
+  | "github-copilot"
+  | "azure-foundry";
+
+export type ApiShape =
+  | "openai-compatible"
+  | "anthropic-messages"
+  | "openai-responses";
+
+export interface ProviderConfig {
+  endpoint: string;
+  api_key: string;
+  api_shape: ApiShape;
+  model: string;
+  manual_models: string;
+}
+
 export interface AppSettings {
   ai_base_url: string;
   ai_model: string;
   ai_api_key: string;
+  /** Active provider chosen in Preferences. Defaults to the migrated
+   * custom-provider profile derived from the legacy flat AI fields. */
+  active_provider: ProviderType;
+  /** Independent saved profile for every provider type. Compatibility
+   * consumers still read the flat `ai_*` fields, which mirror the active
+   * provider's effective values on save. */
+  provider_configs: Record<ProviderType, ProviderConfig>;
   ai_timeout_secs: number;
   ai_max_tool_iterations: number;
   ai_max_retry_attempts: number;

@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, emit } from "../lib/runtime";
-import type { AppSettings, A2aConnection } from "../types/app";
+import type { AppSettings, A2aConnection, WindowSizePreset } from "../types/app";
+import {
+  applyWindowSize,
+  normalizeWindowSize,
+  WINDOW_SIZE_OPTIONS,
+} from "../lib/windowSize";
 
 const BG_PRESETS = [
   { label: "None (solid color)", value: "" },
@@ -102,6 +107,8 @@ export default function SettingsWindow({ onClose, onThemeChange }: Props = {}) {
   const [modelFilter, setModelFilter] = useState("");
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [a2aDiscovery, setA2aDiscovery] = useState<Record<string, string>>({});
+  const [windowSizeError, setWindowSizeError] = useState("");
+  const savedWindowSizeRef = useRef<WindowSizePreset>("standard");
   const modelInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -111,6 +118,9 @@ export default function SettingsWindow({ onClose, onThemeChange }: Props = {}) {
     setSettings(null);
     invoke<AppSettings>("get_settings")
       .then((s) => {
+        const preset = normalizeWindowSize(s.window_size);
+        s.window_size = preset;
+        savedWindowSizeRef.current = preset;
         setSettings(s);
         setModelFilter(s.ai_model);
         setLoading(false);
@@ -196,6 +206,7 @@ export default function SettingsWindow({ onClose, onThemeChange }: Props = {}) {
     setSaveStatus("idle");
     try {
       await invoke("save_settings_cmd", { settings });
+      savedWindowSizeRef.current = normalizeWindowSize(settings.window_size);
       setSaveStatus("success");
       setTimeout(() => setSaveStatus("idle"), 2000);
       emit("omnilauncher://settings-saved", settings).catch(() => {});
@@ -203,6 +214,27 @@ export default function SettingsWindow({ onClose, onThemeChange }: Props = {}) {
       console.error("Save error:", e);
       setSaveStatus("error");
     }
+  };
+
+  const previewWindowSize = async (preset: WindowSizePreset) => {
+    setWindowSizeError("");
+    try {
+      await applyWindowSize(preset);
+      setSettings((current) => current && { ...current, window_size: preset });
+    } catch (error) {
+      setWindowSizeError(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
+
+  const closeSettings = async () => {
+    if (settings && settings.window_size !== savedWindowSizeRef.current) {
+      await applyWindowSize(savedWindowSizeRef.current).catch((error) => {
+        console.error("Failed to restore window size:", error);
+      });
+    }
+    onClose?.();
   };
 
   const updateA2a = (index: number, patch: Partial<A2aConnection>) => {
@@ -437,7 +469,9 @@ export default function SettingsWindow({ onClose, onThemeChange }: Props = {}) {
         </span>
         <button
           className="omni-titlebar__close"
-          onClick={() => onClose?.()}
+          onClick={() => {
+            void closeSettings();
+          }}
           title="Close"
           aria-label="Close"
         >
@@ -718,6 +752,42 @@ export default function SettingsWindow({ onClose, onThemeChange }: Props = {}) {
                       <option value="dark">Dark (Battle Blue)</option>
                       <option value="light">Light (Catppuccin Latte)</option>
                     </select>
+                  </div>
+                  <div style={rowStyle()}>
+                    <span style={rowLabelStyle}>Window size</span>
+                    <div>
+                      <div
+                        className="window-size-options"
+                        role="radiogroup"
+                        aria-label="Window size"
+                      >
+                        {WINDOW_SIZE_OPTIONS.map((option) => (
+                          <label
+                            key={option.value}
+                            className="window-size-option"
+                          >
+                            <input
+                              type="radio"
+                              name="window-size"
+                              value={option.value}
+                              checked={settings.window_size === option.value}
+                              onChange={() => previewWindowSize(option.value)}
+                            />
+                            <span>
+                              <strong>{option.label}</strong>
+                              <small>
+                                {option.width} × {option.height}
+                              </small>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      {windowSizeError ? (
+                        <span role="alert" className="window-size-error">
+                          {windowSizeError}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   <div
                     style={rowStyle(

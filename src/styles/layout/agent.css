@@ -604,3 +604,14 @@
     transform: translateY(0) scale(1);
   }
 }
+
+/* Keep Preferences usable at Compact window size */
+@media (max-width: 760px), (max-height: 580px) {
+  .settings-overlay {
+    padding: 8px;
+  }
+
+  .settings-sheet {
+    max-height: calc(100vh - 16px);
+  }
+}

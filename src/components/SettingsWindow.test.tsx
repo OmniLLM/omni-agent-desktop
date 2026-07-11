@@ -21,6 +21,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { AppSettings } from "../types/app";
 
 type RuntimeMock<Return> = (...args: unknown[]) => Promise<Return>;
@@ -34,6 +35,12 @@ vi.mock("../lib/runtime", () => ({
   emit: (...args: unknown[]) => emitMock(...args),
   listen: (...args: unknown[]) => listenMock(...args),
 }));
+
+const applyWindowSize = vi.fn(async () => undefined);
+vi.mock("../lib/windowSize", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/windowSize")>();
+  return { ...actual, applyWindowSize };
+});
 
 const realSettings: AppSettings = {
   ai_base_url: "http://wsl-backend:5000",
@@ -75,12 +82,15 @@ const realSettings: AppSettings = {
   a2a_connections: [],
   run_mode: "ask",
   backend_url: "http://wsl-backend:1422",
+  window_size: "standard",
 };
 
 beforeEach(() => {
   invokeMock.mockReset();
   emitMock.mockClear();
   listenMock.mockClear();
+  applyWindowSize.mockClear();
+  applyWindowSize.mockResolvedValue(undefined);
 });
 
 async function importSettingsWindow() {
@@ -256,5 +266,60 @@ describe("SettingsWindow load-failure handling", () => {
     const calls = invokeMock.mock.calls.map(([cmd]) => cmd as string);
     expect(calls).not.toContain("save_settings_cmd");
     expect(calls).not.toContain("set_hotkey_cmd");
+  });
+});
+
+describe("SettingsWindow window size presets", () => {
+  beforeEach(() => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_settings") return realSettings;
+      if (cmd === "list_models") return ["gpt-5.4"];
+      return undefined;
+    });
+  });
+
+  it("previews and saves a window size preset", async () => {
+    const user = userEvent.setup();
+    const SettingsWindow = await importSettingsWindow();
+    render(<SettingsWindow />);
+    await user.click(await screen.findByRole("button", { name: /appearance/i }));
+    await user.click(
+      screen.getByRole("radio", { name: /compact.*720.*520/i }),
+    );
+    expect(applyWindowSize).toHaveBeenCalledWith("compact");
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_settings_cmd",
+      expect.objectContaining({
+        settings: expect.objectContaining({ window_size: "compact" }),
+      }),
+    );
+  });
+
+  it("restores the original size when closed without saving", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const SettingsWindow = await importSettingsWindow();
+    render(<SettingsWindow onClose={onClose} />);
+    await user.click(await screen.findByRole("button", { name: /appearance/i }));
+    await user.click(screen.getByRole("radio", { name: /large.*1280.*720/i }));
+    await user.click(screen.getByRole("button", { name: /close/i }));
+    expect(applyWindowSize).toHaveBeenLastCalledWith("standard");
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("keeps the previous selection when preview fails", async () => {
+    applyWindowSize.mockRejectedValueOnce(new Error("resize failed"));
+    const user = userEvent.setup();
+    const SettingsWindow = await importSettingsWindow();
+    render(<SettingsWindow />);
+    await user.click(await screen.findByRole("button", { name: /appearance/i }));
+    await user.click(
+      screen.getByRole("radio", { name: /compact.*720.*520/i }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("resize failed");
+    expect(
+      screen.getByRole("radio", { name: /standard.*960.*640/i }),
+    ).toBeChecked();
   });
 });

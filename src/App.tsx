@@ -4,35 +4,22 @@ import ChatPane from "./components/ChatPane";
 import Composer from "./components/Composer";
 import WelcomeScreen from "./components/WelcomeScreen";
 import ScheduledView from "./components/ScheduledView";
-import PluginsView from "./components/PluginsView";
 import ToolApprovalPrompt from "./components/ToolApprovalPrompt";
 import SettingsWindow from "./components/SettingsWindow";
-import Sidebar, {
-  type WorkspaceView,
-  type Project,
-} from "./components/Sidebar";
+import Sidebar, { type WorkspaceView } from "./components/Sidebar";
 import GlobalKeyframes from "./components/GlobalKeyframes";
 import AppShell from "./components/AppShell";
 import { useAgent } from "./hooks/useAgent";
 import { useTheme } from "./hooks/useTheme";
-import type { AppSettings } from "./types/app";
+import type { AppSettings, ProviderType } from "./types/app";
 import { applyWindowSize, normalizeWindowSize } from "./lib/windowSize";
 import { parseThemeMode } from "./utils/theme";
-
-function newId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `p-${Date.now()}`;
-}
 
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [view, setView] = useState<WorkspaceView>("chat");
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [approveForMe, setApproveForMe] = useState(false);
   const { resolvedTheme, setTheme } = useTheme();
   const {
@@ -50,29 +37,10 @@ export default function App() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const settingsCloseRef = useRef<(() => Promise<void>) | null>(null);
   const showSettingsRef = useRef(false);
-  const projectsLoadedRef = useRef(false);
 
   useEffect(() => {
     showSettingsRef.current = showSettings;
   }, [showSettings]);
-
-  // Load persisted projects once on mount.
-  useEffect(() => {
-    invoke<Project[]>("list_projects")
-      .then((list) => {
-        if (Array.isArray(list)) setProjects(list);
-      })
-      .catch(() => {})
-      .finally(() => {
-        projectsLoadedRef.current = true;
-      });
-  }, []);
-
-  // Persist projects whenever they change (after the initial load).
-  useEffect(() => {
-    if (!projectsLoadedRef.current) return;
-    invoke("save_projects", { projects }).catch(() => {});
-  }, [projects]);
 
   const requestCloseSettings = () => {
     const closer = settingsCloseRef.current;
@@ -83,7 +51,7 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
+  const loadSettings = () => {
     invoke<AppSettings>("get_settings")
       .then((s) => {
         const preset = normalizeWindowSize(s?.window_size);
@@ -94,7 +62,12 @@ export default function App() {
         });
       })
       .catch(() => {});
-  }, [setTheme]);
+  };
+
+  useEffect(() => {
+    loadSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current)
@@ -114,14 +87,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const handleNewProject = () => {
-    const name = window.prompt("Project name:")?.trim();
-    if (!name) return;
-    const project = { id: newId(), name };
-    setProjects((prev) => [...prev, project]);
-    setCurrentProjectId(project.id);
-  };
-
   const handleNewTask = () => {
     newSession();
     setView("chat");
@@ -131,7 +96,31 @@ export default function App() {
     void send(text, approveForMe ? "autopilot" : "ask");
   };
 
-  const currentProject = projects.find((p) => p.id === currentProjectId);
+  // Change provider/model from the composer picker and persist it, mirroring
+  // the values Preferences reads/writes (active_provider + provider_configs).
+  const handleModelChange = (provider: ProviderType, model: string) => {
+    setSettings((prev) => {
+      if (!prev) return prev;
+      const next: AppSettings = {
+        ...prev,
+        active_provider: provider,
+        ai_model: model,
+        provider_configs: {
+          ...prev.provider_configs,
+          [provider]: {
+            ...prev.provider_configs[provider],
+            model,
+          },
+        },
+      };
+      const cfg = next.provider_configs[provider];
+      next.ai_base_url = cfg?.endpoint ?? "";
+      next.ai_api_key = cfg?.api_key ?? "";
+      invoke("save_settings_cmd", { settings: next }).catch(() => {});
+      return next;
+    });
+  };
+
   const isEmpty = messages.length === 0;
 
   return (
@@ -152,7 +141,10 @@ export default function App() {
           >
             <div className="settings-sheet">
               <SettingsWindow
-                onClose={() => setShowSettings(false)}
+                onClose={() => {
+                  setShowSettings(false);
+                  loadSettings();
+                }}
                 onThemeChange={setTheme}
                 registerClose={(fn) => {
                   settingsCloseRef.current = fn;
@@ -179,10 +171,6 @@ export default function App() {
                 void switchSession(id);
               }}
               onDeleteTask={(id) => void deleteSession(id)}
-              projects={projects}
-              currentProjectId={currentProjectId}
-              onSelectProject={setCurrentProjectId}
-              onNewProject={handleNewProject}
               onOpenSettings={() => setShowSettings(true)}
             />
           )}
@@ -214,36 +202,20 @@ export default function App() {
                 <Composer
                   onSend={submit}
                   disabled={loading}
-                  model={settings?.ai_model ?? ""}
-                  projectName={currentProject?.name ?? null}
-                  onChooseProject={() => {
-                    if (projects.length === 0) handleNewProject();
-                    else
-                      setCurrentProjectId(
-                        currentProjectId
-                          ? null
-                          : (projects[0]?.id ?? null),
-                      );
-                  }}
+                  settings={settings}
+                  onModelChange={handleModelChange}
                   approveForMe={approveForMe}
                   onToggleApprove={setApproveForMe}
                 />
               </>
             ) : (
               <div className="workspace-main__scroll">
-                {view === "scheduled" ? (
-                  <ScheduledView
-                    onRun={(prompt) => {
-                      setView("chat");
-                      submit(prompt);
-                    }}
-                  />
-                ) : (
-                  <PluginsView
-                    connections={settings?.a2a_connections ?? []}
-                    onManage={() => setShowSettings(true)}
-                  />
-                )}
+                <ScheduledView
+                  onRun={(prompt) => {
+                    setView("chat");
+                    submit(prompt);
+                  }}
+                />
               </div>
             )}
           </div>

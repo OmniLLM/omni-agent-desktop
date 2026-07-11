@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { ChatMessage } from "../types/app";
 
 const THINKING_ICON: Record<string, string> = {
@@ -11,6 +12,29 @@ const THINKING_LABEL: Record<string, string> = {
   action: "Action",
   result: "Result",
 };
+
+/** Live "working…" indicator with a blinking dot and an elapsed-seconds timer. */
+function WorkingIndicator() {
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef<number>(performance.now());
+
+  useEffect(() => {
+    startRef.current = performance.now();
+    setElapsed(0);
+    const id = window.setInterval(() => {
+      setElapsed((performance.now() - startRef.current) / 1000);
+    }, 100);
+    return () => window.clearInterval(id);
+  }, []);
+
+  return (
+    <div className="thinking-indicator" role="status" aria-live="polite">
+      <span className="thinking-pulse" aria-hidden="true" />
+      <span className="thinking-text">Working…</span>
+      <span className="thinking-timer">{elapsed.toFixed(1)}s</span>
+    </div>
+  );
+}
 
 export default function ChatPane({
   messages,
@@ -44,16 +68,7 @@ export default function ChatPane({
           </div>
         );
       })}
-      {loading ? (
-        <div className="thinking-indicator" role="status" aria-live="polite">
-          <span className="thinking-dots" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
-          </span>
-          <span className="thinking-text">Thinking…</span>
-        </div>
-      ) : null}
+      {loading ? <WorkingIndicator /> : null}
     </div>
   );
 }

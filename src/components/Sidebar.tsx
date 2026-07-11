@@ -1,11 +1,6 @@
 import type { SessionInfo } from "../types/app";
 
-export type WorkspaceView = "chat" | "scheduled" | "plugins";
-
-export interface Project {
-  id: string;
-  name: string;
-}
+export type WorkspaceView = "chat" | "scheduled";
 
 interface Props {
   collapsed: boolean;
@@ -17,17 +12,12 @@ interface Props {
   onNewTask: () => void;
   onSelectTask: (id: string) => void;
   onDeleteTask: (id: string) => void;
-  projects: Project[];
-  currentProjectId: string | null;
-  onSelectProject: (id: string | null) => void;
-  onNewProject: () => void;
   onOpenSettings: () => void;
 }
 
 const NAV_ITEMS: { view: WorkspaceView; icon: string; label: string }[] = [
   { view: "chat", icon: "✎", label: "New task" },
   { view: "scheduled", icon: "◔", label: "Scheduled" },
-  { view: "plugins", icon: "◎", label: "Plugins" },
 ];
 
 export default function Sidebar({
@@ -39,10 +29,6 @@ export default function Sidebar({
   onNewTask,
   onSelectTask,
   onDeleteTask,
-  projects,
-  currentProjectId,
-  onSelectProject,
-  onNewProject,
   onOpenSettings,
 }: Props) {
   return (
@@ -84,44 +70,6 @@ export default function Sidebar({
       </nav>
 
       <div className="sidebar__scroll">
-        <div className="sidebar__section">
-          Projects
-          <button
-            type="button"
-            className="sidebar__icon-btn"
-            aria-label="New project"
-            style={{ float: "right", width: 22, height: 22 }}
-            onClick={onNewProject}
-          >
-            ＋
-          </button>
-        </div>
-        {projects.length === 0 ? (
-          <div className="sidebar__empty">No projects</div>
-        ) : (
-          <div className="sidebar__tasks">
-            {projects.map((project) => (
-              <button
-                key={project.id}
-                type="button"
-                className={`sidebar__task${
-                  project.id === currentProjectId ? " is-active" : ""
-                }`}
-                onClick={() =>
-                  onSelectProject(
-                    project.id === currentProjectId ? null : project.id,
-                  )
-                }
-              >
-                <span className="sidebar__item-icon" aria-hidden="true">
-                  ▤
-                </span>
-                <span className="sidebar__task-title">{project.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
         <div className="sidebar__section">Tasks</div>
         {sessions.length === 0 ? (
           <div className="sidebar__empty">No tasks yet</div>

@@ -615,3 +615,31 @@
     max-height: calc(100vh - 16px);
   }
 }
+
+/* === Working indicator: blinking pulse + elapsed timer === */
+.thinking-pulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: working-blink 1s ease-in-out infinite;
+}
+
+@keyframes working-blink {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(0.7);
+  }
+}
+
+.thinking-timer {
+  font-size: 12px;
+  color: var(--sub);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}

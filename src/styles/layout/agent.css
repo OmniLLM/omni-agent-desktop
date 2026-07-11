@@ -664,3 +664,16 @@
   font-variant-numeric: tabular-nums;
   opacity: 0.85;
 }
+
+/* Assistant markdown: rendered HTML blocks, so no pre-wrap collapsing */
+.bubble.assistant .content.md-content {
+  white-space: normal;
+}
+
+.md-content > :first-child {
+  margin-top: 0;
+}
+
+.md-content > :last-child {
+  margin-bottom: 0;
+}

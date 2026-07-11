@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatMessage } from "../types/app";
+import { renderMarkdown } from "../utils/markdown";
 
 const THINKING_ICON: Record<string, string> = {
   thought: "💭",
@@ -103,7 +104,14 @@ export default function ChatPane({
         }
         return (
           <div key={i} className={`bubble ${m.role}`}>
-            <div className="content">{m.content}</div>
+            {m.role === "assistant" ? (
+              <div
+                className="content md-content"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
+              />
+            ) : (
+              <div className="content">{m.content}</div>
+            )}
             {m.tools_used?.length ? (
               <div className="tools">tools: {m.tools_used.join(", ")}</div>
             ) : null}

@@ -38,4 +38,16 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/search/i)).toBeNull();
   });
+
+  it("renders compact session controls instead of a session sidebar", async () => {
+    render(<App />);
+    expect(
+      await screen.findByRole("button", { name: /new chat/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /new conversation/i }),
+    ).toBeInTheDocument();
+    expect(document.querySelector(".session-bar")).toBeNull();
+    expect(document.querySelector(".session-toolbar")).not.toBeNull();
+  });
 });

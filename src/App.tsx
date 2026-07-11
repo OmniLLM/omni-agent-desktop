@@ -4,7 +4,7 @@ import ChatPane from "./components/ChatPane";
 import Composer from "./components/Composer";
 import ToolApprovalPrompt from "./components/ToolApprovalPrompt";
 import SettingsWindow from "./components/SettingsWindow";
-import SessionBar from "./components/SessionBar";
+import SessionToolbar from "./components/SessionToolbar";
 import GlobalKeyframes from "./components/GlobalKeyframes";
 import AppShell from "./components/AppShell";
 import { useAgent } from "./hooks/useAgent";
@@ -84,23 +84,21 @@ export default function App() {
               </div>
             </div>
           ) : null}
-          <div className="agent-body">
-            <SessionBar
+          <div className="agent-main">
+            <SessionToolbar
               sessions={sessions}
               currentSessionId={currentSessionId}
               onNew={newSession}
               onSwitch={switchSession}
               onDelete={deleteSession}
             />
-            <div className="agent-main">
-              <div className="chat-scroll" ref={scrollRef}>
-                <ChatPane messages={messages} loading={loading} />
-              </div>
-              {pendingApproval ? (
-                <ToolApprovalPrompt call={pendingApproval} onDecide={decide} />
-              ) : null}
-              <Composer onSend={send} disabled={loading} />
+            <div className="chat-scroll" ref={scrollRef}>
+              <ChatPane messages={messages} loading={loading} />
             </div>
+            {pendingApproval ? (
+              <ToolApprovalPrompt call={pendingApproval} onDecide={decide} />
+            ) : null}
+            <Composer onSend={send} disabled={loading} />
           </div>
         </div>
       </AppShell>

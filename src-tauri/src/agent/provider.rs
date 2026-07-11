@@ -112,7 +112,8 @@ pub struct ToolCall {
 pub fn parse_response(shape: ApiShape, body: &Value) -> ParsedTurn {
     match shape {
         ApiShape::AnthropicMessages => parse_anthropic(body),
-        _ => parse_openai_chat(body),
+        ApiShape::OpenaiResponses => parse_openai_responses(body),
+        ApiShape::OpenaiCompatible => parse_openai_chat(body),
     }
 }
 
@@ -132,6 +133,63 @@ fn parse_openai_chat(body: &Value) -> ParsedTurn {
             });
         }
     }
+    ParsedTurn {
+        text,
+        tool_calls: calls,
+    }
+}
+
+/// Parse an OpenAI Responses API result into a [`ParsedTurn`]. Handles the
+/// SDK convenience `output_text`, the structured `output[]` array with message
+/// items whose `content[]` carries `output_text` parts, and top-level
+/// `function_call` items (with `call_id`/`name`/`arguments`). Malformed tool
+/// arguments degrade to an empty object rather than failing the turn.
+fn parse_openai_responses(body: &Value) -> ParsedTurn {
+    let mut text = String::new();
+    let mut calls = Vec::new();
+
+    if let Some(arr) = body["output"].as_array() {
+        for item in arr {
+            match item["type"].as_str() {
+                Some("message") => {
+                    if let Some(parts) = item["content"].as_array() {
+                        for part in parts {
+                            // Responses emits `output_text` parts; tolerate a
+                            // bare `text` field as well.
+                            if let Some(t) = part["text"].as_str() {
+                                if part["type"].as_str().unwrap_or("output_text") == "output_text"
+                                    || part["type"].is_null()
+                                {
+                                    text.push_str(t);
+                                }
+                            }
+                        }
+                    }
+                }
+                Some("function_call") => {
+                    let name = item["name"].as_str().unwrap_or("").to_string();
+                    let raw = item["arguments"].as_str().unwrap_or("{}");
+                    let args = serde_json::from_str(raw).unwrap_or(json!({}));
+                    let id = item["call_id"]
+                        .as_str()
+                        .or_else(|| item["id"].as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    calls.push(ToolCall { id, name, args });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Fall back to the top-level convenience field when no message text was
+    // assembled from the structured output.
+    if text.is_empty() {
+        if let Some(t) = body["output_text"].as_str() {
+            text.push_str(t);
+        }
+    }
+
     ParsedTurn {
         text,
         tool_calls: calls,
@@ -170,7 +228,7 @@ mod tests {
             api_key: "k".into(),
             api_shape: shape,
             model: "m".into(),
-            manual_models: String::new(),
+            ..ProviderConfig::default()
         }
     }
 
@@ -225,5 +283,77 @@ mod tests {
         assert_eq!(t.text, "ok");
         assert_eq!(t.tool_calls[0].name, "bash");
         assert_eq!(t.tool_calls[0].args["command"], "ls");
+    }
+
+    #[test]
+    fn parse_responses_uses_top_level_output_text() {
+        // The OpenAI Responses API SDK convenience field.
+        let body = json!({"output_text": "hello from responses"});
+        let t = parse_response(ApiShape::OpenaiResponses, &body);
+        assert_eq!(t.text, "hello from responses");
+        assert!(t.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn parse_responses_extracts_output_message_text() {
+        // The structured `output` array with a message item whose content
+        // carries `output_text` parts.
+        let body = json!({
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "output_text", "text": "part one "},
+                        {"type": "output_text", "text": "part two"}
+                    ]
+                }
+            ]
+        });
+        let t = parse_response(ApiShape::OpenaiResponses, &body);
+        assert_eq!(t.text, "part one part two");
+        assert!(t.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn parse_responses_extracts_function_calls() {
+        // Responses represents tool calls as top-level `function_call` output
+        // items with call_id/name/arguments (arguments is a JSON string).
+        let body = json!({
+            "output": [
+                {"type": "message", "role": "assistant",
+                 "content": [{"type": "output_text", "text": "let me check"}]},
+                {"type": "function_call", "call_id": "call_abc",
+                 "name": "read", "arguments": "{\"path\":\"/tmp/x\"}"}
+            ]
+        });
+        let t = parse_response(ApiShape::OpenaiResponses, &body);
+        assert_eq!(t.text, "let me check");
+        assert_eq!(t.tool_calls.len(), 1);
+        assert_eq!(t.tool_calls[0].id, "call_abc");
+        assert_eq!(t.tool_calls[0].name, "read");
+        assert_eq!(t.tool_calls[0].args["path"], "/tmp/x");
+    }
+
+    #[test]
+    fn parse_responses_malformed_arguments_are_safe() {
+        // Malformed JSON arguments must not panic; fall back to empty object.
+        let body = json!({
+            "output": [
+                {"type": "function_call", "call_id": "c1", "name": "bash",
+                 "arguments": "{not valid json"}
+            ]
+        });
+        let t = parse_response(ApiShape::OpenaiResponses, &body);
+        assert_eq!(t.tool_calls.len(), 1);
+        assert_eq!(t.tool_calls[0].name, "bash");
+        assert_eq!(t.tool_calls[0].args, json!({}));
+    }
+
+    #[test]
+    fn parse_responses_empty_body_is_safe() {
+        let t = parse_response(ApiShape::OpenaiResponses, &json!({}));
+        assert_eq!(t.text, "");
+        assert!(t.tool_calls.is_empty());
     }
 }

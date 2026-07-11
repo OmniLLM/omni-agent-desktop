@@ -6,6 +6,8 @@
 
 #[path = "../src/settings.rs"]
 mod settings;
+#[path = "../src/secrets.rs"]
+mod secrets;
 #[path = "../src/agent/mod.rs"]
 mod agent;
 

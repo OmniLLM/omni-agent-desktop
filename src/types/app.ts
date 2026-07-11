@@ -34,6 +34,40 @@ export interface ToolCallEvent {
   args: Record<string, unknown>;
 }
 
+/** How often a scheduled task recurs. Serializes to the exact strings the Rust
+ * `Cadence` enum and legacy JSON already use. */
+export type Cadence = "Hourly" | "Daily" | "Weekly";
+
+/** The outcome of the most recent run for a scheduled task. Mirrors the Rust
+ * `RunStatus` enum. */
+export type RunStatus = "Idle" | "Running" | "Succeeded" | "Failed";
+
+/** A persisted scheduled task, mirroring the Rust `ScheduledTask`. All
+ * timestamps are Unix seconds. */
+export interface ScheduledTask {
+  id: string;
+  prompt: string;
+  cadence: Cadence;
+  enabled: boolean;
+  created_at: number;
+  updated_at: number;
+  next_run_at: number;
+  last_run_at: number | null;
+  last_status: RunStatus;
+  last_error: string | null;
+}
+
+/** A status event emitted on `scheduler://status` when a task starts, succeeds,
+ * or fails. Carries only non-secret, bounded fields. Mirrors the Rust
+ * `StatusEvent`. */
+export interface SchedulerStatusEvent {
+  id: string;
+  status: RunStatus;
+  last_run_at: number | null;
+  next_run_at: number;
+  last_error: string | null;
+}
+
 export type ProviderType =
   | "custom-provider"
   | "github-copilot"
@@ -46,11 +80,59 @@ export type ApiShape =
 
 export type WindowSizePreset = "compact" | "standard" | "large";
 
+/** Public, frontend-safe GitHub Copilot authentication status. Mirrors the
+ * Rust `CopilotAuthStatus` (serde tag = "state"). Never carries a token. */
+export type CopilotAuthStatus =
+  | { state: "disconnected" }
+  | {
+      state: "awaiting_user";
+      flow_id: string;
+      user_code: string;
+      verification_uri: string;
+      expires_at: number;
+    }
+  | { state: "connected"; login: string }
+  | { state: "expired" }
+  | { state: "cancelled" }
+  | { state: "error"; message: string };
+
+/** The request shape a Copilot model supports. */
+export type CopilotEndpoint = "chat_completions" | "responses";
+
+/** A discovered Copilot model plus its capability routing. */
+export interface CopilotModel {
+  id: string;
+  supported_endpoints: string[];
+  endpoint: CopilotEndpoint;
+}
+
+/** A single Azure Foundry mapping from a logical model name to the concrete
+ * deployment name. Non-secret; safe to persist and mirror in settings. */
+export interface AzureDeploymentMapping {
+  model: string;
+  deployment: string;
+}
+
 export interface ProviderConfig {
   endpoint: string;
+  /** Non-secret providers only (custom provider). For protected providers
+   * (Azure Foundry, GitHub Copilot) the secret lives in the OS credential
+   * store; this field is ALWAYS blank in the frontend view and in persisted
+   * settings. The frontend never receives the secret value. */
   api_key: string;
+  /** Non-secret presence flag: true when a protected credential exists in the
+   * credential store. Lets the UI show "key configured" without the value.
+   * Optional/false when no credential is stored. */
+  api_key_stored?: boolean;
   api_shape: ApiShape;
   model: string;
+  /** Authoritative Azure model→deployment mappings. Optional in JSON (serde
+   * default on the Rust side); treat absence as an empty list. */
+  azure_deployments?: AzureDeploymentMapping[];
+  /** Azure REST API version, e.g. "2024-02-01". Non-secret. Optional in JSON. */
+  azure_api_version?: string;
+  /** Legacy free-text deployment list. Migration input only; not the
+   * authoritative Azure contract. */
   manual_models: string;
 }
 

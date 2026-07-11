@@ -2,6 +2,8 @@
 
 mod agent;
 mod memory;
+mod scheduler;
+mod secrets;
 mod settings;
 
 use base64::Engine;
@@ -167,20 +169,55 @@ fn register_shortcut(app: &tauri::AppHandle, slot: &ShortcutSlot, shortcut: Shor
 }
 
 #[tauri::command]
-fn get_settings() -> AppSettings {
-    load_desktop_settings()
+fn get_settings() -> Result<AppSettings, String> {
+    let settings = load_desktop_settings();
+    // Return a frontend-safe view: protected secrets are stripped and replaced
+    // with a non-secret `api_key_stored` presence flag. Secrets are NEVER sent
+    // to React. A keyring failure is surfaced as an operational error (we never
+    // log secret values).
+    let store = secrets::KeyringSecretStore::new();
+    secrets::frontend_view(&settings, &store).map_err(|e| {
+        log::error!("keyring read failed while building settings view: {e}");
+        format!("Failed to read credential store: {e}")
+    })
+}
+
+/// Load settings and hydrate protected secrets from the OS keyring for
+/// native-only runtime use (agent execution, model discovery). The result
+/// carries live credentials and must never cross the Tauri boundary to React.
+fn load_settings_with_secrets() -> Result<AppSettings, String> {
+    let mut settings = load_desktop_settings();
+    let store = secrets::KeyringSecretStore::new();
+    secrets::restore_secrets(&mut settings, &store).map_err(|e| {
+        log::error!("keyring read failed while hydrating secrets: {e}");
+        format!("Failed to read credential store: {e}")
+    })?;
+    Ok(settings)
 }
 
 #[tauri::command]
 fn save_settings_cmd(settings: AppSettings) -> Result<AppSettings, String> {
-    settings::save_settings(&settings_path(), settings, false)
+    let store = secrets::KeyringSecretStore::new();
+    let connected = copilot_connected(&store);
+    let saved = secrets::save_settings_secure(&settings_path(), settings, &store, connected)?;
+    // Return the frontend-safe view so React never receives a secret back.
+    secrets::frontend_view(&saved, &store).map_err(|e| {
+        log::error!("keyring read failed while building settings view: {e}");
+        format!("Failed to read credential store: {e}")
+    })
 }
 
 #[tauri::command]
 fn set_hotkey_cmd(app: tauri::AppHandle, slot: State<'_, ShortcutSlot>, settings: AppSettings) -> Result<AppSettings, String> {
     let shortcut = parse_shortcut(&settings.hotkey).ok_or_else(|| format!("Invalid hotkey: {}", settings.hotkey))?;
     register_shortcut(&app, &slot, shortcut)?;
-    settings::save_settings(&settings_path(), settings, false)
+    let store = secrets::KeyringSecretStore::new();
+    let connected = copilot_connected(&store);
+    let saved = secrets::save_settings_secure(&settings_path(), settings, &store, connected)?;
+    secrets::frontend_view(&saved, &store).map_err(|e| {
+        log::error!("keyring read failed while building settings view: {e}");
+        format!("Failed to read credential store: {e}")
+    })
 }
 
 #[tauri::command]
@@ -288,6 +325,97 @@ $img.Save('{}');"#,
 }
 
 // ---------------------------------------------------------------------------
+// GitHub Copilot authentication
+// ---------------------------------------------------------------------------
+
+/// Shared Copilot auth service, managed by Tauri. Holds the device-flow status,
+/// the in-memory Copilot token cache, and the injected keyring/transport/clock.
+struct CopilotState(Arc<agent::copilot::CopilotAuth>);
+
+fn build_copilot_auth() -> Arc<agent::copilot::CopilotAuth> {
+    let transport: Arc<dyn agent::copilot::HttpTransport> =
+        Arc::new(agent::copilot::ReqwestTransport::new(http_client()));
+    let clock: Arc<dyn agent::copilot::Clock> = Arc::new(agent::copilot::SystemClock);
+    let store: Arc<dyn secrets::SecretStore> = Arc::new(secrets::KeyringSecretStore::new());
+    Arc::new(agent::copilot::CopilotAuth::new(transport, clock, store))
+}
+
+/// Whether a long-lived GitHub Copilot credential exists in the store. Used by
+/// settings validation to gate Copilot activation without exposing the token.
+fn copilot_connected(store: &dyn secrets::SecretStore) -> bool {
+    store
+        .get("github-copilot.token")
+        .ok()
+        .flatten()
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+}
+
+/// Start the device-code OAuth flow and spawn a background poller that respects
+/// GitHub's interval and updates the shared status. Returns the display status.
+#[tauri::command]
+async fn start_copilot_device_flow(
+    copilot: State<'_, CopilotState>,
+) -> Result<agent::copilot::CopilotAuthStatus, String> {
+    let auth = copilot.0.clone();
+    let status = auth.start_device_flow().await?;
+    // Background poll loop: honor the server interval, stop on any terminal
+    // outcome or cancellation.
+    let poller = auth.clone();
+    tokio::spawn(async move {
+        loop {
+            let interval = poller.poll_interval().max(1);
+            tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+            match poller.poll_once().await {
+                Ok(agent::copilot::PollOutcome::Pending)
+                | Ok(agent::copilot::PollOutcome::SlowDown { .. }) => continue,
+                _ => break,
+            }
+        }
+    });
+    Ok(status)
+}
+
+/// Return the current public Copilot auth status (never a token).
+#[tauri::command]
+fn get_copilot_auth_status(
+    copilot: State<'_, CopilotState>,
+) -> agent::copilot::CopilotAuthStatus {
+    copilot.0.status()
+}
+
+/// Cancel an in-flight device-code flow.
+#[tauri::command]
+fn cancel_copilot_device_flow(copilot: State<'_, CopilotState>) {
+    copilot.0.cancel();
+}
+
+/// Manual fallback: connect with a user-supplied GitHub token. Returns public
+/// status only.
+#[tauri::command]
+async fn connect_copilot_with_token(
+    copilot: State<'_, CopilotState>,
+    token: String,
+) -> Result<agent::copilot::CopilotAuthStatus, String> {
+    copilot.0.connect_with_token(&token).await
+}
+
+/// Disconnect Copilot: delete the stored GitHub token and clear cached state.
+#[tauri::command]
+fn disconnect_copilot(copilot: State<'_, CopilotState>) -> Result<(), String> {
+    copilot.0.disconnect()
+}
+
+/// List discovered Copilot models with their routing capability. Never returns
+/// a token.
+#[tauri::command]
+async fn list_copilot_models(
+    copilot: State<'_, CopilotState>,
+) -> Result<Vec<agent::copilot::CopilotModel>, String> {
+    copilot.0.list_models().await
+}
+
+// ---------------------------------------------------------------------------
 // Agent runtime commands
 // ---------------------------------------------------------------------------
 
@@ -362,16 +490,159 @@ async fn call_provider(
     Ok(agent::provider::parse_response(req.shape, &body))
 }
 
-#[tauri::command]
-async fn agent_run(
+/// Production [`agent::RunBackend`] for the foreground chat command. Wraps the
+/// live provider clients (custom / Copilot / Azure), the local + A2A tool
+/// registry, and the UI approval channel so the shared `run_once` loop drives
+/// real side effects. Scheduled runs supply their own headless backend.
+struct ForegroundBackend<'a> {
+    client: reqwest::Client,
+    config: settings::ProviderConfig,
+    system: String,
+    use_copilot: bool,
+    use_azure: bool,
+    copilot_auth: Arc<agent::copilot::CopilotAuth>,
+    azure_transport: agent::copilot::ReqwestTransport,
+    tool_defs: Vec<serde_json::Value>,
+    a2a_tools: Vec<agent::a2a::A2aTool>,
+    registry: &'a ApprovalRegistry,
     app: tauri::AppHandle,
-    registry: State<'_, ApprovalRegistry>,
-    message: String,
-    mode: agent::RunMode,
-    history: Option<Vec<serde_json::Value>>,
-) -> Result<(), String> {
-    let settings = load_desktop_settings();
-    let client = http_client();
+}
+
+impl<'a> agent::RunBackend for ForegroundBackend<'a> {
+    fn infer<'b>(
+        &'b self,
+        _system: &'b str,
+        messages: &'b [agent::provider::Msg],
+        _tools: &'b [serde_json::Value],
+    ) -> agent::BoxFut<'b, Result<agent::provider::ParsedTurn, String>> {
+        Box::pin(async move {
+            if self.use_copilot {
+                // GitHub Copilot: short-lived Copilot token, model endpoint,
+                // bounded auth/fallback retry. The long-lived token stays in the
+                // credential store.
+                let convo: Vec<(String, String)> = messages
+                    .iter()
+                    .map(|m| (m.role.clone(), m.content.clone()))
+                    .collect();
+                self.copilot_auth
+                    .infer(&self.config.model, &self.system, &convo, &self.tool_defs)
+                    .await
+            } else if self.use_azure {
+                // Azure Foundry: deployment remap, `api-key` Responses request
+                // (`store: false`), parsed with the real Responses parser.
+                let convo: Vec<(String, String)> = messages
+                    .iter()
+                    .map(|m| (m.role.clone(), m.content.clone()))
+                    .collect();
+                agent::azure::infer(
+                    &self.azure_transport,
+                    &self.config,
+                    &self.config.model,
+                    &self.system,
+                    &convo,
+                    &self.tool_defs,
+                )
+                .await
+            } else {
+                call_provider(&self.client, &self.config, &self.system, messages, &self.tool_defs)
+                    .await
+            }
+        })
+    }
+
+    fn run_tool<'b>(
+        &'b self,
+        name: &'b str,
+        args: &'b serde_json::Value,
+    ) -> agent::BoxFut<'b, Result<String, String>> {
+        Box::pin(async move {
+            if let Some(tool) = self.a2a_tools.iter().find(|t| t.tool_name == name) {
+                let task = args["task"].as_str().unwrap_or("").to_string();
+                agent::a2a::delegate(&self.client, tool, &task).await
+            } else {
+                agent::tools::execute(name, args)
+            }
+        })
+    }
+
+    fn approve<'b>(
+        &'b self,
+        call_id: &'b str,
+        name: &'b str,
+        args: &'b serde_json::Value,
+    ) -> agent::BoxFut<'b, agent::ApprovalDecision> {
+        Box::pin(async move {
+            let (tx, rx) = oneshot::channel();
+            if let Ok(mut map) = self.registry.0.lock() {
+                map.insert(call_id.to_string(), tx);
+            }
+            let _ = self.app.emit(
+                "agent://tool-approval-request",
+                ToolCallEvent {
+                    call_id: call_id.to_string(),
+                    tool: name.to_string(),
+                    args: args.clone(),
+                },
+            );
+            rx.await.unwrap_or(agent::ApprovalDecision::Deny)
+        })
+    }
+}
+
+/// Foreground [`agent::RunEvents`] sink: relays the shared loop's progress to the
+/// existing Tauri events the chat UI already listens for.
+struct ForegroundEvents {
+    app: tauri::AppHandle,
+}
+
+impl agent::RunEvents for ForegroundEvents {
+    fn thought(&self, text: &str) {
+        let _ = self.app.emit("agent://thought", text.to_string());
+    }
+    fn tool_call(&self, call_id: &str, tool: &str, args: &serde_json::Value) {
+        let _ = self.app.emit(
+            "agent://tool-call",
+            ToolCallEvent {
+                call_id: call_id.to_string(),
+                tool: tool.to_string(),
+                args: args.clone(),
+            },
+        );
+    }
+    fn tool_result(&self, call_id: &str, tool: &str, result: &str) {
+        let _ = self.app.emit(
+            "agent://tool-result",
+            serde_json::json!({ "call_id": call_id, "tool": tool, "result": result }),
+        );
+    }
+}
+
+/// Assembled inputs for one shared agent run. Produced by [`prepare_run`] and
+/// consumed identically by the foreground command and the headless scheduler so
+/// the two paths never duplicate provider selection, memory injection, system
+/// assembly, history packing, or A2A tool discovery.
+struct RunPrep {
+    config: settings::ProviderConfig,
+    system: String,
+    messages: Vec<agent::provider::Msg>,
+    tool_defs: Vec<serde_json::Value>,
+    a2a_tools: Vec<agent::a2a::A2aTool>,
+    a2a_names: std::collections::HashSet<String>,
+    use_copilot: bool,
+    use_azure: bool,
+    max_iterations: usize,
+}
+
+/// Shared run preparation extracted from `agent_run`. Builds the provider config,
+/// tool set (local + enabled A2A), system context (base prompt + startup memory),
+/// and packed conversation history for a single prompt. `history` is optional
+/// prior turns (foreground chat); the scheduler passes `None`.
+async fn prepare_run(
+    settings: &AppSettings,
+    client: &reqwest::Client,
+    message: &str,
+    history: Option<&[serde_json::Value]>,
+) -> RunPrep {
     let configs = settings.effective_provider_configs();
     let config = configs
         .get(settings.active_provider)
@@ -382,7 +653,7 @@ async fn agent_run(
     let mut tool_defs = agent::tools::tool_definitions();
     let mut a2a_tools: Vec<agent::a2a::A2aTool> = Vec::new();
     for conn in settings.a2a_connections.iter().filter(|c| c.enabled) {
-        if let Ok(card) = agent::a2a::fetch_card(&client, &conn.endpoint, &conn.token).await {
+        if let Ok(card) = agent::a2a::fetch_card(client, &conn.endpoint, &conn.token).await {
             for t in agent::a2a::tools_from_card(conn, &card) {
                 tool_defs.push(agent::a2a::a2a_tool_definition(&t));
                 a2a_tools.push(t);
@@ -397,24 +668,18 @@ async fn agent_run(
         - Put code, commands, paths, and identifiers in backticks or fenced code blocks.\n\
         - Lead with the direct answer, then supporting detail; keep it concise and easy to scan.";
 
-    // Cross-session memory: MEMORY.md + recent daily logs, read at startup and
-    // injected into the system block (Harness Engineering Guide recall cycle).
+    // Cross-session memory: MEMORY.md + recent daily logs.
     let base = config_dir();
     let startup_memory = memory::read_startup_memory(&base);
-
-    // Assemble the system context each turn against a token budget, packing by
-    // priority with response headroom reserved via the history budget below.
     let mut assembler = agent::context::ContextAssembler::new(4000);
     assembler
         .add(0, "system", base_prompt)
         .add(2, "memory", &startup_memory);
     let system = assembler.build();
 
-    // Reconstruct conversation context from the session history (user/assistant
-    // turns only — thinking traces and tool results are not resent), then pack
-    // it with a sliding window so long conversations stay within budget.
+    // Reconstruct conversation context from prior user/assistant turns.
     let mut prior: Vec<agent::provider::Msg> = Vec::new();
-    if let Some(hist) = &history {
+    if let Some(hist) = history {
         for m in hist {
             let role = m["role"].as_str().unwrap_or("");
             let content = m["content"].as_str().unwrap_or("");
@@ -428,120 +693,135 @@ async fn agent_run(
     }
     prior.push(agent::provider::Msg {
         role: "user".into(),
-        content: message.clone(),
+        content: message.to_string(),
     });
-    // Budget for conversation history; leaves headroom for the model's reply.
-    let mut msgs = agent::context::pack_history(&prior, 16_000, 12);
-    let max = settings.ai_max_tool_iterations.max(1);
-    let mut session_allow: std::collections::HashSet<String> = Default::default();
-    let mut counter: u64 = 0;
+    let messages = agent::context::pack_history(&prior, 16_000, 12);
+    let max_iterations = settings.ai_max_tool_iterations.max(1);
 
-    for _ in 0..max {
-        let turn = match call_provider(&client, &config, &system, &msgs, &tool_defs).await {
-            Ok(t) => t,
-            Err(e) => {
-                let _ = app.emit("agent://error", e.clone());
-                return Err(e);
+    let use_copilot = settings.active_provider == settings::ProviderType::GithubCopilot;
+    let use_azure = settings.active_provider == settings::ProviderType::AzureFoundry;
+    let a2a_names: std::collections::HashSet<String> =
+        a2a_tools.iter().map(|t| t.tool_name.clone()).collect();
+
+    RunPrep {
+        config,
+        system,
+        messages,
+        tool_defs,
+        a2a_tools,
+        a2a_names,
+        use_copilot,
+        use_azure,
+        max_iterations,
+    }
+}
+
+#[tauri::command]
+async fn agent_run(
+    app: tauri::AppHandle,
+    registry: State<'_, ApprovalRegistry>,
+    copilot: State<'_, CopilotState>,
+    message: String,
+    mode: agent::RunMode,
+    history: Option<Vec<serde_json::Value>>,
+) -> Result<(), String> {
+    // Native runtime path: hydrate protected secrets from the keyring so the
+    // provider request carries a live Azure key / Copilot token.
+    let settings = load_settings_with_secrets()?;
+    let client = http_client();
+
+    // Shared preparation: identical system/history/tool-definition/backend
+    // assembly used by BOTH the foreground command and the headless scheduler,
+    // so neither path duplicates provider dispatch, memory injection, or A2A
+    // tool discovery.
+    let prep = prepare_run(&settings, &client, &message, history.as_deref()).await;
+
+    let backend = ForegroundBackend {
+        client: client.clone(),
+        config: prep.config.clone(),
+        system: prep.system.clone(),
+        use_copilot: prep.use_copilot,
+        use_azure: prep.use_azure,
+        copilot_auth: copilot.0.clone(),
+        azure_transport: agent::copilot::ReqwestTransport::new(client.clone()),
+        tool_defs: prep.tool_defs.clone(),
+        a2a_tools: prep.a2a_tools,
+        registry: &registry,
+        app: app.clone(),
+    };
+    let events = ForegroundEvents { app: app.clone() };
+
+    // Foreground chat drives the SAME shared execution path scheduled runs use;
+    // only the origin, event sink, and approval source differ.
+    let outcome = agent::run_once(
+        agent::RunOrigin::Foreground,
+        mode,
+        prep.system,
+        prep.messages,
+        prep.tool_defs,
+        prep.max_iterations,
+        move |name: &str| prep.a2a_names.contains(name),
+        |name: &str| agent::tools::classify(name) == agent::tools::ToolClass::Mutating,
+        &backend,
+        &events,
+    )
+    .await;
+
+    match outcome {
+        Ok(out) => {
+            // Record the exchange in today's daily log (Tier-1 memory) only on a
+            // natural completion, matching the prior foreground behavior which did
+            // not log when the run stopped by hitting the iteration cap.
+            if out.text != agent::MAX_ITERATIONS_REPLY {
+                let logged: String = message.chars().take(120).collect();
+                memory::append_daily_log(&config_dir(), &format!("Q: {logged}"));
             }
-        };
-        if turn.tool_calls.is_empty() {
-            // Record the exchange in today's daily log (Tier-1 memory).
-            let logged: String = message.chars().take(120).collect();
-            memory::append_daily_log(&base, &format!("Q: {logged}"));
-            let _ = app.emit("agent://done", turn.text.clone());
-            return Ok(());
+            let _ = app.emit("agent://done", out.text);
+            Ok(())
         }
-        // Surface the model's reasoning that precedes its tool calls so the UI
-        // can show the thinking process behind each action.
-        if !turn.text.trim().is_empty() {
-            let _ = app.emit("agent://thought", turn.text.clone());
-        }
-        for call in &turn.tool_calls {
-            counter += 1;
-            let call_id = format!("call-{counter}");
-            let is_a2a = a2a_tools.iter().any(|t| t.tool_name == call.name);
-            // A2A delegation is auto-routed and treated as non-mutating: hub
-            // skills are read-only queries, so they run without an approval
-            // prompt. Only local file/shell tools (write/edit/bash) require
-            // approval in Ask mode.
-            let mutating =
-                !is_a2a && agent::tools::classify(&call.name) == agent::tools::ToolClass::Mutating;
-            let _ = app.emit(
-                "agent://tool-call",
-                ToolCallEvent {
-                    call_id: call_id.clone(),
-                    tool: call.name.clone(),
-                    args: call.args.clone(),
-                },
-            );
-
-            let decision = match agent::gate(mode, mutating) {
-                agent::Gate::Auto => agent::ApprovalDecision::Approve,
-                agent::Gate::Block => {
-                    msgs.push(agent::provider::Msg {
-                        role: "user".into(),
-                        content: format!("[tool {} blocked in plan mode]", call.name),
-                    });
-                    continue;
-                }
-                agent::Gate::Approve => {
-                    if session_allow.contains(&call.name) {
-                        agent::ApprovalDecision::Approve
-                    } else {
-                        let (tx, rx) = oneshot::channel();
-                        if let Ok(mut map) = registry.0.lock() {
-                            map.insert(call_id.clone(), tx);
-                        }
-                        let _ = app.emit(
-                            "agent://tool-approval-request",
-                            ToolCallEvent {
-                                call_id: call_id.clone(),
-                                tool: call.name.clone(),
-                                args: call.args.clone(),
-                            },
-                        );
-                        rx.await.unwrap_or(agent::ApprovalDecision::Deny)
-                    }
-                }
-            };
-
-            let result = match decision {
-                agent::ApprovalDecision::Deny => format!("[tool {} denied by user]", call.name),
-                d => {
-                    if d == agent::ApprovalDecision::AllowSession {
-                        session_allow.insert(call.name.clone());
-                    }
-                    if is_a2a {
-                        let tool = a2a_tools
-                            .iter()
-                            .find(|t| t.tool_name == call.name)
-                            .unwrap();
-                        let task = call.args["task"].as_str().unwrap_or("").to_string();
-                        agent::a2a::delegate(&client, tool, &task)
-                            .await
-                            .unwrap_or_else(|e| format!("error: {e}"))
-                    } else {
-                        agent::tools::execute(&call.name, &call.args)
-                            .unwrap_or_else(|e| format!("error: {e}"))
-                    }
-                }
-            };
-            let _ = app.emit(
-                "agent://tool-result",
-                serde_json::json!({
-                    "call_id": call_id, "tool": call.name, "result": result }),
-            );
-            msgs.push(agent::provider::Msg {
-                role: "user".into(),
-                content: format!("[tool {} result]\n{result}", call.name),
-            });
+        Err(e) => {
+            let _ = app.emit("agent://error", e.clone());
+            Err(e)
         }
     }
-    let _ = app.emit(
-        "agent://done",
-        "stopped: max iterations reached".to_string(),
-    );
-    Ok(())
+}
+
+/// Draft "Test Connection" for Azure Foundry. The `api_key` is request-only: it
+/// is moved straight into the native request and is never logged or persisted.
+/// A separate Save is what commits the key to the credential store.
+///
+/// `draft` is the provider profile as edited in the UI (endpoint, api-version,
+/// deployment mappings, selected model). When the draft omits a typed key
+/// (because it was previously stored and never echoed to React), the explicit
+/// `api_key` argument supplies it for this one bounded request.
+#[tauri::command]
+async fn test_azure_connection(
+    draft: settings::ProviderConfig,
+    api_key: String,
+) -> Result<String, String> {
+    // Move the request-only key into the config; prefer an explicitly typed key
+    // in the draft, otherwise use the separate argument. Never log either.
+    let mut config = draft;
+    let typed = config.api_key.trim().to_string();
+    let key = if !typed.is_empty() { typed } else { api_key.trim().to_string() };
+    config.api_key = key;
+    config.api_key_stored = false;
+
+    agent::azure::validate_config(&config)?;
+
+    let client = http_client();
+    let transport = agent::copilot::ReqwestTransport::new(client);
+    let turn = agent::azure::infer(
+        &transport,
+        &config,
+        &config.model,
+        "You are a connection test. Reply with the single word: ok.",
+        &[("user".to_string(), "ping".to_string())],
+        &[],
+    )
+    .await?;
+    let _ = turn;
+    Ok("Azure connection succeeded".to_string())
 }
 
 #[tauri::command]
@@ -752,19 +1032,214 @@ fn scheduled_path() -> PathBuf {
     config_dir().join("scheduled.json")
 }
 
-/// List saved scheduled tasks (array), empty if none exist yet.
-#[tauri::command]
-fn list_scheduled() -> serde_json::Value {
-    fs::read_to_string(scheduled_path())
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_else(|| serde_json::json!([]))
+/// Managed scheduler service. Owns typed persistence, cadence timers, the
+/// per-task run guard, and status events. Shared across commands and the setup
+/// driver.
+struct SchedulerState(Arc<scheduler::Scheduler>);
+
+/// Headless [`agent::RunBackend`] for scheduled runs. It reuses the SAME
+/// `prepare_run` assembly and `run_once` loop as the foreground path — it does
+/// not duplicate the agent loop. Its approval resolver ALWAYS returns `Deny`: a
+/// scheduled run has no UI to prompt, so it must never block waiting on approval
+/// and must never silently perform a mutating/A2A action. Combined with the
+/// default `Ask` mode this makes every gated (mutating/A2A) tool a no-op with a
+/// "denied" tool result, keeping headless runs safe.
+struct HeadlessBackend {
+    client: reqwest::Client,
+    config: settings::ProviderConfig,
+    system: String,
+    use_copilot: bool,
+    use_azure: bool,
+    copilot_auth: Arc<agent::copilot::CopilotAuth>,
+    azure_transport: agent::copilot::ReqwestTransport,
+    tool_defs: Vec<serde_json::Value>,
+    a2a_tools: Vec<agent::a2a::A2aTool>,
 }
 
-/// Overwrite the full scheduled-task list.
+impl agent::RunBackend for HeadlessBackend {
+    fn infer<'b>(
+        &'b self,
+        _system: &'b str,
+        messages: &'b [agent::provider::Msg],
+        _tools: &'b [serde_json::Value],
+    ) -> agent::BoxFut<'b, Result<agent::provider::ParsedTurn, String>> {
+        Box::pin(async move {
+            if self.use_copilot {
+                let convo: Vec<(String, String)> = messages
+                    .iter()
+                    .map(|m| (m.role.clone(), m.content.clone()))
+                    .collect();
+                self.copilot_auth
+                    .infer(&self.config.model, &self.system, &convo, &self.tool_defs)
+                    .await
+            } else if self.use_azure {
+                let convo: Vec<(String, String)> = messages
+                    .iter()
+                    .map(|m| (m.role.clone(), m.content.clone()))
+                    .collect();
+                agent::azure::infer(
+                    &self.azure_transport,
+                    &self.config,
+                    &self.config.model,
+                    &self.system,
+                    &convo,
+                    &self.tool_defs,
+                )
+                .await
+            } else {
+                call_provider(&self.client, &self.config, &self.system, messages, &self.tool_defs)
+                    .await
+            }
+        })
+    }
+
+    fn run_tool<'b>(
+        &'b self,
+        name: &'b str,
+        args: &'b serde_json::Value,
+    ) -> agent::BoxFut<'b, Result<String, String>> {
+        Box::pin(async move {
+            if let Some(tool) = self.a2a_tools.iter().find(|t| t.tool_name == name) {
+                let task = args["task"].as_str().unwrap_or("").to_string();
+                agent::a2a::delegate(&self.client, tool, &task).await
+            } else {
+                agent::tools::execute(name, args)
+            }
+        })
+    }
+
+    fn approve<'b>(
+        &'b self,
+        _call_id: &'b str,
+        _name: &'b str,
+        _args: &'b serde_json::Value,
+    ) -> agent::BoxFut<'b, agent::ApprovalDecision> {
+        // Headless: never wait on UI; deny every gated tool by default.
+        Box::pin(async move { agent::ApprovalDecision::Deny })
+    }
+}
+
+/// Production [`scheduler::TaskRunner`]: for each scheduled task it hydrates
+/// secrets, runs `prepare_run`, and drives the shared `run_once` loop with the
+/// headless backend at `Ask` mode (gated tools auto-denied).
+struct AgentTaskRunner {
+    copilot: Arc<agent::copilot::CopilotAuth>,
+}
+
+impl scheduler::TaskRunner for AgentTaskRunner {
+    fn run<'a>(
+        &'a self,
+        task: &'a scheduler::ScheduledTask,
+    ) -> agent::BoxFut<'a, Result<String, String>> {
+        Box::pin(async move {
+            let settings = load_settings_with_secrets()?;
+            let client = http_client();
+            let prep = prepare_run(&settings, &client, &task.prompt, None).await;
+            let backend = HeadlessBackend {
+                client: client.clone(),
+                config: prep.config.clone(),
+                system: prep.system.clone(),
+                use_copilot: prep.use_copilot,
+                use_azure: prep.use_azure,
+                copilot_auth: self.copilot.clone(),
+                azure_transport: agent::copilot::ReqwestTransport::new(client.clone()),
+                tool_defs: prep.tool_defs.clone(),
+                a2a_tools: prep.a2a_tools,
+            };
+            let events = agent::NullEvents;
+            let a2a_names = prep.a2a_names;
+            let out = agent::run_once(
+                agent::RunOrigin::Scheduled {
+                    task_id: task.id.clone(),
+                },
+                // Ask mode + headless Deny => any mutating/A2A tool is denied,
+                // never auto-executed, and the run never blocks on UI.
+                agent::RunMode::Ask,
+                prep.system,
+                prep.messages,
+                prep.tool_defs,
+                prep.max_iterations,
+                move |name: &str| a2a_names.contains(name),
+                |name: &str| agent::tools::classify(name) == agent::tools::ToolClass::Mutating,
+                &backend,
+                &events,
+            )
+            .await?;
+            Ok(out.text)
+        })
+    }
+}
+
+/// A [`scheduler::StatusSink`] that relays task status to the frontend via a
+/// Tauri event. Only non-secret, bounded fields cross the boundary.
+struct TauriStatusSink {
+    app: tauri::AppHandle,
+}
+
+impl scheduler::StatusSink for TauriStatusSink {
+    fn emit(&self, event: &scheduler::StatusEvent) {
+        let _ = self.app.emit("scheduler://status", event.clone());
+    }
+}
+
+/// Build the managed scheduler service, wiring the file store, system clock,
+/// production task runner, and Tauri status sink.
+fn build_scheduler(
+    app: &tauri::AppHandle,
+    copilot: Arc<agent::copilot::CopilotAuth>,
+) -> Arc<scheduler::Scheduler> {
+    let store: Arc<dyn scheduler::TaskStore> =
+        Arc::new(scheduler::FileTaskStore::new(scheduled_path()));
+    let clock: Arc<dyn scheduler::Clock> = Arc::new(scheduler::SystemClock);
+    let runner: Arc<dyn scheduler::TaskRunner> = Arc::new(AgentTaskRunner { copilot });
+    let sink: Arc<dyn scheduler::StatusSink> = Arc::new(TauriStatusSink { app: app.clone() });
+    scheduler::Scheduler::new(store, clock, runner, sink)
+}
+
+/// List all scheduled tasks (typed).
 #[tauri::command]
-fn save_scheduled(scheduled: serde_json::Value) -> Result<(), String> {
-    settings::atomic_write(&scheduled_path(), &scheduled.to_string())
+fn list_scheduled(sched: State<'_, SchedulerState>) -> Vec<scheduler::ScheduledTask> {
+    sched.0.list()
+}
+
+/// Create a scheduled task from a validated prompt/cadence. Returns the created
+/// task; the full list is available via `list_scheduled`.
+#[tauri::command]
+fn create_scheduled(
+    sched: State<'_, SchedulerState>,
+    prompt: String,
+    cadence: scheduler::Cadence,
+    enabled: Option<bool>,
+) -> Result<scheduler::ScheduledTask, String> {
+    sched.0.create(&prompt, cadence, enabled.unwrap_or(true))
+}
+
+/// Update a scheduled task's prompt, cadence, and enabled flag.
+#[tauri::command]
+fn update_scheduled(
+    sched: State<'_, SchedulerState>,
+    id: String,
+    prompt: String,
+    cadence: scheduler::Cadence,
+    enabled: bool,
+) -> Result<scheduler::ScheduledTask, String> {
+    sched.0.update(&id, &prompt, cadence, enabled)
+}
+
+/// Delete a scheduled task by id.
+#[tauri::command]
+fn delete_scheduled(sched: State<'_, SchedulerState>, id: String) -> Result<(), String> {
+    sched.0.delete(&id)
+}
+
+/// Run a scheduled task immediately (manual trigger). Rejected if the same task
+/// is already running.
+#[tauri::command]
+async fn run_scheduled_now(
+    sched: State<'_, SchedulerState>,
+    id: String,
+) -> Result<scheduler::ScheduledTask, String> {
+    sched.0.run_now(&id).await
 }
 
 // ---------------------------------------------------------------------------
@@ -788,11 +1263,15 @@ fn main() {
     init_logging(debug);
     let settings = load_desktop_settings();
     let shortcut_slot = ShortcutSlot(Arc::new(Mutex::new(None::<Shortcut>)));
+    // Shared Copilot auth service, used by both the foreground command state and
+    // the scheduler's headless task runner.
+    let copilot_auth = build_copilot_auth();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(shortcut_slot.clone())
         .manage(ApprovalRegistry::default())
+        .manage(CopilotState(copilot_auth.clone()))
         .setup(move |app| {
             let window = app.get_webview_window("main").expect("main window");
             window.center().ok();
@@ -800,6 +1279,20 @@ fn main() {
             let shortcut = parse_shortcut(&settings.hotkey)
                 .unwrap_or_else(|| Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO));
             register_shortcut(&app.handle().clone(), &shortcut_slot, shortcut)?;
+
+            // Build and start the persistent scheduler. It keeps running while the
+            // window is hidden and the process is alive; the driver performs
+            // exactly one startup catch-up before entering its timer loop. The
+            // service is managed so commands can reach it; a clone drives the
+            // background loop.
+            //
+            // Spawn via `tauri::async_runtime::spawn`, NOT `tokio::spawn`: this
+            // `setup` closure runs synchronously outside an entered Tokio runtime,
+            // where a bare `tokio::spawn` would panic. Tauri's runtime handle
+            // spawns onto the managed executor regardless of ambient context.
+            let sched = build_scheduler(&app.handle().clone(), copilot_auth.clone());
+            tauri::async_runtime::spawn(sched.clone().drive());
+            app.manage(SchedulerState(sched));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -824,10 +1317,30 @@ fn main() {
             list_projects,
             save_projects,
             list_scheduled,
-            save_scheduled,
+            create_scheduled,
+            update_scheduled,
+            delete_scheduled,
+            run_scheduled_now,
+            start_copilot_device_flow,
+            get_copilot_auth_status,
+            cancel_copilot_device_flow,
+            connect_copilot_with_token,
+            disconnect_copilot,
+            list_copilot_models,
+            test_azure_connection,
             get_memory,
             save_memory,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Omni Agent Desktop");
+        .build(tauri::generate_context!())
+        .expect("error while building Omni Agent Desktop")
+        .run(|app, event| {
+            // Cancel the scheduler's background timers/worker on process exit so
+            // it stops when the app stops (it keeps running while the window is
+            // merely hidden and the process is alive).
+            if let tauri::RunEvent::Exit = event {
+                if let Some(sched) = app.try_state::<SchedulerState>() {
+                    sched.0.shutdown();
+                }
+            }
+        });
 }

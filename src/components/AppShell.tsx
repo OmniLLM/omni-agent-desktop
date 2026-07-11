@@ -1,4 +1,5 @@
 import type { ResolvedTheme } from "../utils/theme";
+import { buildBackgroundCss } from "../lib/background";
 
 const SHELL_FONT =
   "'Aptos Display', 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif";
@@ -29,16 +30,7 @@ export default function AppShell({
         width: "100%",
         minHeight: "100vh",
         height: "100vh",
-        background:
-          resolvedTheme === "dark"
-            ? backgroundUrl
-              ? `
-                linear-gradient(180deg, rgba(6, 12, 24, 0.74) 0%, rgba(8, 14, 28, 0.86) 100%),
-                radial-gradient(circle at 18% -6%, color-mix(in srgb, var(--accent) 12%, transparent) 0, transparent 40%),
-                url("${backgroundUrl}") center top / cover no-repeat
-              `
-              : `linear-gradient(160deg, #0b1220 0%, #0e1930 52%, #0a1426 100%)`
-            : "var(--bg)",
+        background: buildBackgroundCss(backgroundUrl, resolvedTheme),
         color: "var(--text)",
         fontFamily: SHELL_FONT,
         borderRadius: "0",

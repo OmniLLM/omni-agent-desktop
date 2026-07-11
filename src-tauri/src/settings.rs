@@ -90,16 +90,50 @@ impl<'de> Deserialize<'de> for WindowSizePreset {
 // Provider config
 // ---------------------------------------------------------------------------
 
+/// A single Azure Foundry mapping from a logical `model` name to the concrete
+/// `deployment` name used by the Azure endpoint. Both fields are non-secret and
+/// safe to persist.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AzureDeploymentMapping {
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub deployment: String,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderConfig {
     #[serde(default)]
     pub endpoint: String,
+    /// Plaintext secret for NON-protected providers only (custom provider). For
+    /// protected providers (Azure Foundry, GitHub Copilot) this is empty in
+    /// persisted settings and in the frontend view; the real secret lives in the
+    /// OS credential store and is hydrated into this field only on native
+    /// runtime paths. Never send a protected secret to React.
     #[serde(default)]
     pub api_key: String,
+    /// Non-secret presence flag: true when a protected credential exists in the
+    /// credential store for this provider. Lets the UI show "key configured"
+    /// without ever receiving the secret value. Derived, not authoritative;
+    /// omitted from persisted settings when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub api_key_stored: bool,
     #[serde(default)]
     pub api_shape: ApiShape,
     #[serde(default)]
     pub model: String,
+    /// Authoritative Azure model→deployment mappings.
+    #[serde(default)]
+    pub azure_deployments: Vec<AzureDeploymentMapping>,
+    /// Azure REST API version (e.g. "2024-02-01"). Non-secret.
+    #[serde(default)]
+    pub azure_api_version: String,
+    /// Legacy free-text deployment list. Retained only as migration input for
+    /// older settings files; not the authoritative Azure contract.
     #[serde(default)]
     pub manual_models: String,
 }
@@ -109,10 +143,32 @@ impl Default for ProviderConfig {
         Self {
             endpoint: String::new(),
             api_key: String::new(),
+            api_key_stored: false,
             api_shape: ApiShape::default(),
             model: String::new(),
+            azure_deployments: Vec::new(),
+            azure_api_version: String::new(),
             manual_models: String::new(),
         }
+    }
+}
+
+impl ProviderConfig {
+    /// Return the effective Azure deployment mappings for this profile,
+    /// migrating from the legacy `manual_models` free-text list when the
+    /// structured `azure_deployments` field is empty. In the legacy case each
+    /// entry maps a model name to an identically-named deployment.
+    pub fn effective_azure_deployments(&self) -> Vec<AzureDeploymentMapping> {
+        if !self.azure_deployments.is_empty() {
+            return self.azure_deployments.clone();
+        }
+        parse_manual_models(&self.manual_models)
+            .into_iter()
+            .map(|name| AzureDeploymentMapping {
+                model: name.clone(),
+                deployment: name,
+            })
+            .collect()
     }
 }
 
@@ -153,6 +209,66 @@ impl Default for ProviderConfigMap {
     fn default() -> Self {
         ProviderConfigMap::defaults()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Azure deployment mapping contract
+// ---------------------------------------------------------------------------
+
+/// The validated Azure mapping contract: a set of unique, non-empty
+/// model/deployment mappings, an `api_version`, and the currently selected
+/// model (which must be one of the mapped models).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AzureMappingContract {
+    pub mappings: Vec<AzureDeploymentMapping>,
+    pub api_version: String,
+    pub selected_model: String,
+}
+
+/// Validate the Azure mapping contract. Rejects empty `model`/`deployment`
+/// entries, duplicate models, duplicate deployments, a blank `api_version`, and
+/// a `selected_model` that is not among the mapped models.
+pub fn validate_azure_mappings(
+    mappings: &[AzureDeploymentMapping],
+    api_version: &str,
+    selected_model: &str,
+) -> Result<AzureMappingContract, ValidationError> {
+    if mappings.is_empty() {
+        return Err(ValidationError(
+            "At least one deployment/model mapping is required".to_string(),
+        ));
+    }
+    let mut seen_models = std::collections::HashSet::new();
+    let mut seen_deployments = std::collections::HashSet::new();
+    for m in mappings {
+        let model = m.model.trim();
+        let deployment = m.deployment.trim();
+        require(model, "Mapping model is required")?;
+        require(deployment, "Mapping deployment is required")?;
+        if !seen_models.insert(model.to_string()) {
+            return Err(ValidationError(format!("Duplicate model mapping: {model}")));
+        }
+        if !seen_deployments.insert(deployment.to_string()) {
+            return Err(ValidationError(format!(
+                "Duplicate deployment mapping: {deployment}"
+            )));
+        }
+    }
+    require(api_version, "API version is required")?;
+    require(selected_model, "Selected model is required")?;
+    if !mappings
+        .iter()
+        .any(|m| m.model.trim() == selected_model.trim())
+    {
+        return Err(ValidationError(
+            "Selected model is not in the mapping list".to_string(),
+        ));
+    }
+    Ok(AzureMappingContract {
+        mappings: mappings.to_vec(),
+        api_version: api_version.trim().to_string(),
+        selected_model: selected_model.trim().to_string(),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -381,19 +497,16 @@ pub fn validate_provider(
         }
         ProviderType::AzureFoundry => {
             require(&config.endpoint, "Endpoint is required")?;
-            require(&config.api_key, "API key is required")?;
-            let models = parse_manual_models(&config.manual_models);
-            if models.is_empty() {
-                return Err(ValidationError(
-                    "At least one deployment/model is required".to_string(),
-                ));
+            // A protected credential is satisfied by either a live plaintext key
+            // (pre-redaction save) or a credential already in the store.
+            if config.api_key.trim().is_empty() && !config.api_key_stored {
+                return Err(ValidationError("API key is required".to_string()));
             }
-            require(&config.model, "Model is required")?;
-            if !models.iter().any(|m| m == &config.model) {
-                return Err(ValidationError(
-                    "Selected model is not in the deployment list".to_string(),
-                ));
-            }
+            // Authoritative Azure contract: structured mappings + api version +
+            // selected model membership. Legacy `manual_models` is migrated by
+            // `effective_azure_deployments`.
+            let mappings = config.effective_azure_deployments();
+            validate_azure_mappings(&mappings, &config.azure_api_version, &config.model)?;
             Ok(())
         }
     }
@@ -775,10 +888,12 @@ mod tests {
     }
 
     #[test]
-    fn azure_validation_requires_normalized_list_and_member_model() {
+    fn azure_validation_legacy_manual_models_still_validates() {
+        // Legacy path: manual_models migrates into structured mappings.
         let mut c = ProviderConfig::default();
         c.endpoint = "https://a".to_string();
         c.api_key = "k".to_string();
+        c.azure_api_version = "2024-02-01".to_string();
         // Empty list.
         assert!(validate_provider(ProviderType::AzureFoundry, &c, false).is_err());
         c.manual_models = " , \n ".to_string();
@@ -794,8 +909,156 @@ mod tests {
         assert!(validate_provider(ProviderType::AzureFoundry, &c, false).is_ok());
     }
 
+    #[test]
+    fn azure_validation_uses_structured_mappings() {
+        let mut c = ProviderConfig::default();
+        c.endpoint = "https://a".to_string();
+        c.api_key = "k".to_string();
+        c.azure_api_version = "2024-02-01".to_string();
+        c.azure_deployments = vec![
+            AzureDeploymentMapping {
+                model: "gpt-4o".to_string(),
+                deployment: "dep-4o".to_string(),
+            },
+            AzureDeploymentMapping {
+                model: "gpt-4o-mini".to_string(),
+                deployment: "dep-mini".to_string(),
+            },
+        ];
+        // Missing api version fails.
+        c.model = "gpt-4o".to_string();
+        let mut no_ver = c.clone();
+        no_ver.azure_api_version = String::new();
+        assert!(validate_provider(ProviderType::AzureFoundry, &no_ver, false).is_err());
+        // Selected model not in mappings.
+        let mut bad_model = c.clone();
+        bad_model.model = "nope".to_string();
+        assert!(validate_provider(ProviderType::AzureFoundry, &bad_model, false).is_err());
+        // Valid.
+        assert!(validate_provider(ProviderType::AzureFoundry, &c, false).is_ok());
+        // Structured mappings win over legacy manual_models.
+        let mut with_legacy = c.clone();
+        with_legacy.manual_models = "legacy-only".to_string();
+        assert!(validate_provider(ProviderType::AzureFoundry, &with_legacy, false).is_ok());
+    }
+
+    #[test]
+    fn azure_validation_accepts_stored_credential_without_plaintext() {
+        let mut c = ProviderConfig::default();
+        c.endpoint = "https://a".to_string();
+        c.api_key = String::new();
+        c.api_key_stored = true; // credential lives in the store
+        c.azure_api_version = "2024-02-01".to_string();
+        c.azure_deployments = vec![AzureDeploymentMapping {
+            model: "m".to_string(),
+            deployment: "d".to_string(),
+        }];
+        c.model = "m".to_string();
+        assert!(validate_provider(ProviderType::AzureFoundry, &c, false).is_ok());
+        // Neither plaintext nor stored -> invalid.
+        let mut missing = c.clone();
+        missing.api_key_stored = false;
+        assert!(validate_provider(ProviderType::AzureFoundry, &missing, false).is_err());
+    }
+
+    #[test]
+    fn effective_azure_deployments_migrates_manual_models() {
+        let mut c = ProviderConfig::default();
+        c.manual_models = "a, b, a".to_string();
+        let m = c.effective_azure_deployments();
+        assert_eq!(m.len(), 2);
+        assert_eq!(m[0].model, "a");
+        assert_eq!(m[0].deployment, "a");
+        // Structured field takes precedence when present.
+        c.azure_deployments = vec![AzureDeploymentMapping {
+            model: "x".to_string(),
+            deployment: "y".to_string(),
+        }];
+        let m2 = c.effective_azure_deployments();
+        assert_eq!(m2.len(), 1);
+        assert_eq!(m2[0].deployment, "y");
+    }
+
     // --- Manual model normalization ----------------------------------------
 
+    #[test]
+    fn azure_mapping_contract_accepts_unique_nonempty() {
+        let mappings = vec![
+            AzureDeploymentMapping {
+                model: "gpt-4o".to_string(),
+                deployment: "dep-4o".to_string(),
+            },
+            AzureDeploymentMapping {
+                model: "gpt-4o-mini".to_string(),
+                deployment: "dep-mini".to_string(),
+            },
+        ];
+        let c = validate_azure_mappings(&mappings, "2024-02-01", "gpt-4o").unwrap();
+        assert_eq!(c.selected_model, "gpt-4o");
+        assert_eq!(c.api_version, "2024-02-01");
+        assert_eq!(c.mappings.len(), 2);
+    }
+
+    #[test]
+    fn azure_mapping_contract_rejects_empty_and_dupes() {
+        // Empty list.
+        assert!(validate_azure_mappings(&[], "v", "m").is_err());
+        // Empty model.
+        let m = vec![AzureDeploymentMapping {
+            model: "".to_string(),
+            deployment: "d".to_string(),
+        }];
+        assert!(validate_azure_mappings(&m, "v", "m").is_err());
+        // Duplicate model.
+        let dup_model = vec![
+            AzureDeploymentMapping {
+                model: "a".to_string(),
+                deployment: "d1".to_string(),
+            },
+            AzureDeploymentMapping {
+                model: "a".to_string(),
+                deployment: "d2".to_string(),
+            },
+        ];
+        assert!(validate_azure_mappings(&dup_model, "v", "a").is_err());
+        // Duplicate deployment.
+        let dup_dep = vec![
+            AzureDeploymentMapping {
+                model: "a".to_string(),
+                deployment: "d".to_string(),
+            },
+            AzureDeploymentMapping {
+                model: "b".to_string(),
+                deployment: "d".to_string(),
+            },
+        ];
+        assert!(validate_azure_mappings(&dup_dep, "v", "a").is_err());
+    }
+
+    #[test]
+    fn azure_mapping_contract_requires_api_version_and_member_selected() {
+        let mappings = vec![AzureDeploymentMapping {
+            model: "a".to_string(),
+            deployment: "d".to_string(),
+        }];
+        // Blank api version.
+        assert!(validate_azure_mappings(&mappings, "  ", "a").is_err());
+        // Selected model not in mappings.
+        assert!(validate_azure_mappings(&mappings, "v", "zzz").is_err());
+        // Valid.
+        assert!(validate_azure_mappings(&mappings, "v", "a").is_ok());
+    }
+
+    #[test]
+    fn azure_deployment_mapping_roundtrips() {
+        let m = AzureDeploymentMapping {
+            model: "gpt-4o".to_string(),
+            deployment: "dep".to_string(),
+        };
+        let json = serde_json::to_string(&m).unwrap();
+        let back: AzureDeploymentMapping = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, m);
+    }
     #[test]
     fn parse_manual_models_trims_dedups_first_seen() {
         let raw = "a, b\n c , a\r\nb,, d ";

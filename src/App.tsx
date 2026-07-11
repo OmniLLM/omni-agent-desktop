@@ -19,6 +19,12 @@ import { parseThemeMode } from "./utils/theme";
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  // Live background preview while Settings is open. `null` means "no active
+  // preview — use the persisted settings background". Kept separate from
+  // `settings` so an unsaved draft never mutates persisted state.
+  const [backgroundPreview, setBackgroundPreview] = useState<string | null>(
+    null,
+  );
   const [collapsed, setCollapsed] = useState(false);
   const [view, setView] = useState<WorkspaceView>("chat");
   const [approveForMe, setApproveForMe] = useState(false);
@@ -124,12 +130,17 @@ export default function App() {
 
   const isEmpty = messages.length === 0;
 
+  // The background actually shown: an active live preview takes precedence over
+  // the persisted setting; otherwise fall back to the saved background.
+  const effectiveBackground =
+    backgroundPreview ?? settings?.background_url ?? "";
+
   return (
     <>
       <GlobalKeyframes />
       <AppShell
         resolvedTheme={resolvedTheme}
-        backgroundUrl=""
+        backgroundUrl={effectiveBackground}
         isCompactMode={false}
         isAiMode={true}
       >
@@ -145,9 +156,11 @@ export default function App() {
               <SettingsWindow
                 onClose={() => {
                   setShowSettings(false);
+                  setBackgroundPreview(null);
                   loadSettings();
                 }}
                 onThemeChange={setTheme}
+                onBackgroundPreview={setBackgroundPreview}
                 registerClose={(fn) => {
                   settingsCloseRef.current = fn;
                 }}
@@ -212,12 +225,7 @@ export default function App() {
               </>
             ) : (
               <div className="workspace-main__scroll">
-                <ScheduledView
-                  onRun={(prompt) => {
-                    setView("chat");
-                    submit(prompt);
-                  }}
-                />
+                <ScheduledView />
               </div>
             )}
           </div>

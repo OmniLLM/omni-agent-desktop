@@ -141,9 +141,19 @@ const TAURI_NATIVE_COMMANDS = new Set<string>([
   "list_projects",
   "save_projects",
   "list_scheduled",
-  "save_scheduled",
+  "create_scheduled",
+  "update_scheduled",
+  "delete_scheduled",
+  "run_scheduled_now",
   "get_memory",
   "save_memory",
+  "start_copilot_device_flow",
+  "get_copilot_auth_status",
+  "cancel_copilot_device_flow",
+  "connect_copilot_with_token",
+  "disconnect_copilot",
+  "list_copilot_models",
+  "test_azure_connection",
 ]);
 
 function isNativeCommand(cmd: string): boolean {
@@ -370,6 +380,118 @@ function ensureSelectionPolling() {
       // ignore polling errors in browser mode
     }
   }, 750);
+}
+
+// ---------------------------------------------------------------------------
+// Mock-mode scheduler state
+//
+// In pure browser/mock mode (no Tauri, no backend URL) there is no Rust
+// scheduler, so the mock invoke maintains a small in-memory task list that
+// behaves like the real backend: create/update/delete/run mutate and return
+// the authoritative task, preserving existing fields and timestamps. This
+// mirrors the reconcile-by-id contract the frontend relies on, and prevents a
+// stateless echo from blanking fields a command didn't supply (e.g. run-now,
+// which carries only an id).
+// ---------------------------------------------------------------------------
+
+type MockScheduledTask = {
+  id: string;
+  prompt: string;
+  cadence: string;
+  enabled: boolean;
+  created_at: number;
+  updated_at: number;
+  next_run_at: number;
+  last_run_at: number | null;
+  last_status: string;
+  last_error: string | null;
+};
+
+const MOCK_CADENCE_SECS: Record<string, number> = {
+  Hourly: 3_600,
+  Daily: 86_400,
+  Weekly: 604_800,
+};
+
+let mockScheduledTasks: MockScheduledTask[] = [];
+let mockScheduledSeq = 0;
+
+/** Test-only: reset the in-memory mock scheduler between cases. */
+export function __resetMockScheduler(): void {
+  mockScheduledTasks = [];
+  mockScheduledSeq = 0;
+}
+
+function mockNow(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+function mockCadenceSecs(cadence: string): number {
+  return MOCK_CADENCE_SECS[cadence] ?? MOCK_CADENCE_SECS.Daily;
+}
+
+/** Monotonic, collision-free id for mock-mode tasks. */
+function mockScheduledId(): string {
+  mockScheduledSeq += 1;
+  return `mock-${mockNow()}-${mockScheduledSeq}`;
+}
+
+function handleMockScheduler(
+  cmd: string,
+  args?: Record<string, unknown>,
+): { handled: true; value: unknown } | { handled: false } {
+  const now = mockNow();
+  switch (cmd) {
+    case "list_scheduled":
+      return { handled: true, value: mockScheduledTasks.map((t) => ({ ...t })) };
+    case "create_scheduled": {
+      const cadence = (args?.cadence as string) ?? "Daily";
+      const task: MockScheduledTask = {
+        id: mockScheduledId(),
+        prompt: ((args?.prompt as string) ?? "").trim(),
+        cadence,
+        enabled: (args?.enabled as boolean) ?? true,
+        created_at: now,
+        updated_at: now,
+        next_run_at: now + mockCadenceSecs(cadence),
+        last_run_at: null,
+        last_status: "Idle",
+        last_error: null,
+      };
+      mockScheduledTasks.push(task);
+      return { handled: true, value: { ...task } };
+    }
+    case "update_scheduled": {
+      const task = mockScheduledTasks.find((t) => t.id === args?.id);
+      if (!task) throw new Error("task not found");
+      // Apply only the supplied mutable fields; preserve everything else.
+      const cadenceChanged =
+        typeof args?.cadence === "string" && args.cadence !== task.cadence;
+      if (typeof args?.prompt === "string") task.prompt = args.prompt.trim();
+      if (typeof args?.cadence === "string") task.cadence = args.cadence;
+      if (typeof args?.enabled === "boolean") task.enabled = args.enabled;
+      task.updated_at = now;
+      if (cadenceChanged) task.next_run_at = now + mockCadenceSecs(task.cadence);
+      return { handled: true, value: { ...task } };
+    }
+    case "delete_scheduled": {
+      mockScheduledTasks = mockScheduledTasks.filter((t) => t.id !== args?.id);
+      return { handled: true, value: undefined };
+    }
+    case "run_scheduled_now": {
+      const task = mockScheduledTasks.find((t) => t.id === args?.id);
+      if (!task) throw new Error("task not found");
+      // Only run/status/next timestamps change; prompt/cadence/enabled survive.
+      task.last_run_at = now;
+      task.last_status = "Succeeded";
+      task.last_error = null;
+      task.next_run_at = now + mockCadenceSecs(task.cadence);
+      task.updated_at = now;
+      return { handled: true, value: { ...task } };
+    }
+    default:
+      return { handled: false };
+  }
 }
 
 export async function invoke<T = unknown>(
@@ -630,11 +752,9 @@ export async function invoke<T = unknown>(
   if (cmd === "save_projects") {
     return undefined as T;
   }
-  if (cmd === "list_scheduled") {
-    return [] as T;
-  }
-  if (cmd === "save_scheduled") {
-    return undefined as T;
+  {
+    const mock = handleMockScheduler(cmd, args);
+    if (mock.handled) return mock.value as T;
   }
   if (cmd === "current_ai_session") {
     return 0 as T;
@@ -647,6 +767,30 @@ export async function invoke<T = unknown>(
   }
   if (cmd === "save_settings_cmd") {
     return true as T;
+  }
+  if (cmd === "get_copilot_auth_status") {
+    return { state: "disconnected" } as T;
+  }
+  if (cmd === "start_copilot_device_flow") {
+    return {
+      state: "awaiting_user",
+      flow_id: "mock-flow",
+      user_code: "MOCK-CODE",
+      verification_uri: "https://github.com/login/device",
+      expires_at: Math.floor(Date.now() / 1000) + 900,
+    } as T;
+  }
+  if (cmd === "connect_copilot_with_token") {
+    return { state: "connected", login: "mock-user" } as T;
+  }
+  if (cmd === "cancel_copilot_device_flow" || cmd === "disconnect_copilot") {
+    return undefined as T;
+  }
+  if (cmd === "list_copilot_models") {
+    return [] as T;
+  }
+  if (cmd === "test_azure_connection") {
+    return "Azure connection succeeded" as T;
   }
   return {} as T;
 }

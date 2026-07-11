@@ -207,7 +207,9 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--bg);
+  /* Transparent so the AppShell background image shows through the main pane.
+     The readable overlay lives on the AppShell wrapper. */
+  background: transparent;
 }
 
 .workspace-main__scroll {
@@ -622,6 +624,35 @@
 .panel-view__badge.is-on {
   color: var(--accent);
   background: var(--accent-dim);
+}
+
+/* Scheduler status integration (additive) */
+.panel-view__error {
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, #e81123 45%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, #e81123 12%, transparent);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.panel-view__row-error {
+  font-size: 12px;
+  color: #e81123;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-view__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--sub);
+  cursor: pointer;
 }
 
 /* === Composer model picker === */

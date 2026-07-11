@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import mainRsSource from "../../src-tauri/src/main.rs?raw";
-import { isWindowLocalCommand, invoke, getBackendMode, listen, emit, ensureBackendToken } from "./runtime";
+import { isWindowLocalCommand, invoke, getBackendMode, listen, emit, ensureBackendToken, __resetMockScheduler } from "./runtime";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -854,5 +854,84 @@ describe("response data integrity", () => {
     mockBackendWithResponse(true);
     const result = await invoke<boolean>("ai_cancel");
     expect(result).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Stateful scheduler mock (browser/mock mode)
+// ===========================================================================
+
+describe("mock-mode scheduler is stateful and field-preserving", () => {
+  beforeEach(() => {
+    // Pure mock mode: no window, no backend URL.
+    cleanupGlobals();
+    __resetMockScheduler();
+  });
+  afterEach(() => {
+    __resetMockScheduler();
+    cleanupGlobals();
+  });
+
+  it("create then run_scheduled_now preserves prompt/cadence and only updates run/status/next", async () => {
+    const created = await invoke<any>("create_scheduled", {
+      prompt: "Summarize today’s progress",
+      cadence: "Hourly",
+      enabled: true,
+    });
+    expect(created.prompt).toBe("Summarize today’s progress");
+    expect(created.cadence).toBe("Hourly");
+    expect(created.last_status).toBe("Idle");
+
+    const list1 = await invoke<any[]>("list_scheduled");
+    expect(list1).toHaveLength(1);
+    expect(list1[0].id).toBe(created.id);
+
+    const ran = await invoke<any>("run_scheduled_now", { id: created.id });
+    // Bug regression: prompt/cadence must survive a run-now.
+    expect(ran.prompt).toBe("Summarize today’s progress");
+    expect(ran.cadence).toBe("Hourly");
+    expect(ran.last_status).toBe("Succeeded");
+    expect(ran.last_run_at).not.toBeNull();
+    expect(ran.next_run_at).toBeGreaterThan(created.created_at);
+    // Identity + timestamps preserved.
+    expect(ran.id).toBe(created.id);
+    expect(ran.created_at).toBe(created.created_at);
+
+    const list2 = await invoke<any[]>("list_scheduled");
+    expect(list2[0].prompt).toBe("Summarize today’s progress");
+    expect(list2[0].cadence).toBe("Hourly");
+    expect(list2[0].last_status).toBe("Succeeded");
+  });
+
+  it("update applies only supplied fields and delete removes", async () => {
+    const a = await invoke<any>("create_scheduled", {
+      prompt: "Task A",
+      cadence: "Daily",
+      enabled: true,
+    });
+    const updated = await invoke<any>("update_scheduled", {
+      id: a.id,
+      prompt: "Task A edited",
+      cadence: "Weekly",
+      enabled: false,
+    });
+    expect(updated.prompt).toBe("Task A edited");
+    expect(updated.cadence).toBe("Weekly");
+    expect(updated.enabled).toBe(false);
+    expect(updated.created_at).toBe(a.created_at);
+
+    await invoke("delete_scheduled", { id: a.id });
+    const list = await invoke<any[]>("list_scheduled");
+    expect(list).toHaveLength(0);
+  });
+
+  it("assigns unique ids across rapid creates", async () => {
+    const created = await Promise.all([
+      invoke<any>("create_scheduled", { prompt: "one", cadence: "Daily" }),
+      invoke<any>("create_scheduled", { prompt: "two", cadence: "Daily" }),
+      invoke<any>("create_scheduled", { prompt: "three", cadence: "Daily" }),
+    ]);
+    const ids = new Set(created.map((t) => t.id));
+    expect(ids.size).toBe(3);
   });
 });

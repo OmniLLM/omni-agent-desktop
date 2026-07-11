@@ -1,11 +1,26 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, emit } from "../lib/runtime";
-import type { AppSettings, A2aConnection, WindowSizePreset } from "../types/app";
+import type {
+  AppSettings,
+  A2aConnection,
+  ProviderConfig,
+  ProviderType,
+  WindowSizePreset,
+} from "../types/app";
+import CustomProviderFields from "./settings/CustomProviderFields";
+import CopilotProviderFields from "./settings/CopilotProviderFields";
+import AzureProviderFields from "./settings/AzureProviderFields";
+import { validateProviderDraft } from "../lib/providerValidation";
 import {
   applyWindowSize,
   normalizeWindowSize,
   WINDOW_SIZE_OPTIONS,
 } from "../lib/windowSize";
+import {
+  isSafeBackgroundUrl,
+  validateBackgroundUrl,
+  type BackgroundValidation,
+} from "../lib/background";
 
 const BG_PRESETS = [
   { label: "None (solid color)", value: "" },
@@ -38,6 +53,23 @@ const TABS = [
   { id: "general", label: "General", icon: "⚙️" },
   { id: "a2a", label: "A2A", icon: "🔗" },
 ] as const;
+
+const PROVIDERS: { value: ProviderType; label: string }[] = [
+  { value: "custom-provider", label: "Custom provider" },
+  { value: "github-copilot", label: "GitHub Copilot" },
+  { value: "azure-foundry", label: "Azure AI Foundry" },
+];
+
+function emptyProviderConfig(): ProviderConfig {
+  return {
+    endpoint: "",
+    api_key: "",
+    api_key_stored: false,
+    api_shape: "openai-compatible",
+    model: "",
+    manual_models: "",
+  };
+}
 
 type TabId = (typeof TABS)[number]["id"];
 type SaveStatus = "idle" | "success" | "error";
@@ -82,12 +114,19 @@ interface Props {
   onThemeChange?: (theme: "dark" | "light") => void;
   /** Register the rollback-aware close handler so the host can route Escape/backdrop through it. */
   registerClose?: (close: () => Promise<void>) => void;
+  /**
+   * Live-preview a background URL before Save. Pass a valid URL to preview it,
+   * or an empty string to clear the preview and fall back to the persisted
+   * background. The host owns the preview state so it can restore on cancel.
+   */
+  onBackgroundPreview?: (url: string) => void;
 }
 
 export default function SettingsWindow({
   onClose,
   onThemeChange,
   registerClose,
+  onBackgroundPreview,
 }: Props = {}) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -99,13 +138,49 @@ export default function SettingsWindow({
   const [activeTab, setActiveTab] = useState<TabId>("ai");
   const [loadAttempt, setLoadAttempt] = useState(0);
 
+  // Provider selection + independent per-provider drafts. `activeProvider` is
+  // the provider currently being edited in the dialog; `providerDrafts` holds a
+  // retained draft for every provider so switching never loses unsaved edits.
+  const [activeProvider, setActiveProvider] =
+    useState<ProviderType>("custom-provider");
+  const [providerDrafts, setProviderDrafts] = useState<
+    Record<ProviderType, ProviderConfig>
+  >({
+    "custom-provider": emptyProviderConfig(),
+    "github-copilot": emptyProviderConfig(),
+    "azure-foundry": emptyProviderConfig(),
+  });
+
+  const updateProviderDraft = useCallback(
+    (provider: ProviderType, patch: Partial<ProviderConfig>) => {
+      setProviderDrafts((prev) => ({
+        ...prev,
+        [provider]: { ...prev[provider], ...patch },
+      }));
+      // Editing a provider clears its stale save-time error.
+      setProviderError("");
+    },
+    [],
+  );
+
+  /** Save-time validation error for the active provider (field-level). */
+  const [providerError, setProviderError] = useState("");
+  /** Whether Copilot currently reports a connected credential. Lifted from the
+   * Copilot field component so save-time validation can gate activation. */
+  const [copilotConnected, setCopilotConnected] = useState(false);
+
   const currentBgUrl = settings?.background_url ?? "";
   const isCustomBg =
     currentBgUrl !== "" &&
     !BG_PRESETS.some(
       (p) => p.value === currentBgUrl && p.value !== "__custom__",
     );
-  const bgSelectValue = isCustomBg ? "__custom__" : currentBgUrl;
+  // Sticky "custom URL" mode: once the user is editing a custom URL we keep the
+  // text field mounted even if the value momentarily becomes empty (clearing
+  // it char-by-char would otherwise unmount the input mid-edit).
+  const [customBgMode, setCustomBgMode] = useState(false);
+  const showCustomBg = isCustomBg || customBgMode;
+  const bgSelectValue = showCustomBg ? "__custom__" : currentBgUrl;
 
   const [models, setModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -114,9 +189,20 @@ export default function SettingsWindow({
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [a2aDiscovery, setA2aDiscovery] = useState<Record<string, string>>({});
   const [windowSizeError, setWindowSizeError] = useState("");
+  const [bgError, setBgError] = useState("");
+  // Runtime image-load failure: the URL is well-formed & safe but the browser
+  // could not fetch/decode the image. We warn without discarding the draft.
+  const [bgLoadError, setBgLoadError] = useState(false);
   const savedWindowSizeRef = useRef<WindowSizePreset>("standard");
+  /** The background URL that is currently persisted on disk. Used to restore
+   *  the host's live preview when the user cancels or a save fails. */
+  const savedBackgroundRef = useRef<string>("");
   const modelInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  /** Monotonic token for custom model discovery. Incremented on every new
+   * discovery AND on provider switch/unmount, so a slow in-flight result that
+   * resolves after the user has moved on is dropped instead of landing stale. */
+  const discoveryGenRef = useRef(0);
 
   useEffect(() => {
     setLoading(true);
@@ -127,6 +213,18 @@ export default function SettingsWindow({
         const preset = normalizeWindowSize(s.window_size);
         s.window_size = preset;
         savedWindowSizeRef.current = preset;
+        savedBackgroundRef.current = s.background_url ?? "";
+        // Seed provider selection + per-provider drafts from loaded settings.
+        const loadedActive = s.active_provider ?? "custom-provider";
+        setActiveProvider(loadedActive);
+        setProviderDrafts({
+          "custom-provider":
+            s.provider_configs?.["custom-provider"] ?? emptyProviderConfig(),
+          "github-copilot":
+            s.provider_configs?.["github-copilot"] ?? emptyProviderConfig(),
+          "azure-foundry":
+            s.provider_configs?.["azure-foundry"] ?? emptyProviderConfig(),
+        });
         setSettings(s);
         setModelFilter(s.ai_model);
         setLoading(false);
@@ -160,29 +258,43 @@ export default function SettingsWindow({
 
   const fetchModels = useCallback(async () => {
     if (!settings) return;
+    // Discover using the CURRENT unsaved custom-provider draft — endpoint and
+    // key as edited in the dialog — not the persisted flat ai_* fields. The key
+    // is only sent to the local native list_models command, never logged.
+    const custom = providerDrafts["custom-provider"];
+    const baseUrl = custom?.endpoint ?? settings.ai_base_url;
+    const apiKey = custom?.api_key ?? settings.ai_api_key;
+    if (!baseUrl) return;
+    const gen = ++discoveryGenRef.current;
     setModelsLoading(true);
     setModelsError("");
     try {
       const result = await invoke<string[]>("list_models", {
-        baseUrl: settings.ai_base_url,
-        apiKey: settings.ai_api_key,
+        baseUrl,
+        apiKey,
       });
+      // Drop a stale result: the user switched provider / re-triggered / left.
+      if (gen !== discoveryGenRef.current) return;
       setModels(result.sort());
     } catch (e) {
+      if (gen !== discoveryGenRef.current) return;
       setModelsError(String(e));
       setModels([]);
     } finally {
-      setModelsLoading(false);
+      if (gen === discoveryGenRef.current) setModelsLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings?.ai_base_url, settings?.ai_api_key]);
+  }, [providerDrafts, settings?.ai_base_url, settings?.ai_api_key]);
 
+  // Invalidate any in-flight custom discovery when the active provider changes
+  // (so a late result can't land on another provider's view) and on unmount.
   useEffect(() => {
-    if (settings?.ai_base_url) {
-      fetchModels();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings?.ai_base_url, settings?.ai_api_key]);
+    discoveryGenRef.current += 1;
+    setModelsLoading(false);
+    return () => {
+      discoveryGenRef.current += 1;
+    };
+  }, [activeProvider]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -209,16 +321,56 @@ export default function SettingsWindow({
 
   const handleSave = async () => {
     if (!settings) return;
+    // Don't persist an invalid background — the inline error is already shown.
+    const saveCheck = validateBackgroundUrl(settings.background_url ?? "");
+    if (!saveCheck.ok) {
+      // strictNullChecks is off in tsconfig, which disables boolean-literal
+      // discriminant narrowing, so extract the error-branch type explicitly.
+      setBgError(
+        (saveCheck as Extract<BackgroundValidation, { ok: false }>).error,
+      );
+      return;
+    }
+    // Guard: the active provider's draft must be valid before we activate it.
+    // This mirrors the native validation and blocks a doomed round-trip; the
+    // drafts are retained and the dialog stays open on failure.
+    const providerCheck = validateProviderDraft(
+      activeProvider,
+      providerDrafts[activeProvider],
+      { copilotConnected },
+    );
+    if (providerCheck) {
+      setProviderError(providerCheck);
+      return;
+    }
+    setProviderError("");
     setSaveStatus("idle");
+    // Provider configs are authoritative. Fold the current per-provider drafts
+    // and the active-provider selection into the settings payload. Do NOT author
+    // the flat ai_* fields here — Rust projects those from the active provider
+    // for backend compatibility.
+    const settingsToSave: AppSettings = {
+      ...settings,
+      active_provider: activeProvider,
+      provider_configs: {
+        "custom-provider": providerDrafts["custom-provider"],
+        "github-copilot": providerDrafts["github-copilot"],
+        "azure-foundry": providerDrafts["azure-foundry"],
+      },
+    };
     try {
-      await invoke("save_settings_cmd", { settings });
+      await invoke("save_settings_cmd", { settings: settingsToSave });
       savedWindowSizeRef.current = normalizeWindowSize(settings.window_size);
+      savedBackgroundRef.current = settings.background_url ?? "";
       setSaveStatus("success");
       setTimeout(() => setSaveStatus("idle"), 2000);
-      emit("omnilauncher://settings-saved", settings).catch(() => {});
+      emit("omnilauncher://settings-saved", settingsToSave).catch(() => {});
     } catch (e) {
       console.error("Save error:", e);
       setSaveStatus("error");
+      // Save failed — the persisted background is unchanged, so restore the
+      // host's live preview to the last-saved URL.
+      onBackgroundPreview?.(savedBackgroundRef.current);
     }
   };
 
@@ -234,12 +386,37 @@ export default function SettingsWindow({
     }
   };
 
+  /**
+   * Update the draft background URL and drive the host's live preview.
+   * A valid (or empty) URL previews immediately and clears any error; an
+   * invalid URL surfaces an inline error and does NOT update the preview,
+   * so the last good background stays on screen.
+   */
+  const changeBackground = (url: string) => {
+    setSettings((s) => s && { ...s, background_url: url });
+    // A new URL invalidates any prior runtime load failure.
+    setBgLoadError(false);
+    const result = validateBackgroundUrl(url);
+    if (result.ok) {
+      setBgError("");
+      onBackgroundPreview?.(
+        (result as Extract<BackgroundValidation, { ok: true }>).value,
+      );
+    } else {
+      setBgError(
+        (result as Extract<BackgroundValidation, { ok: false }>).error,
+      );
+    }
+  };
+
   const closeSettings = async () => {
     if (settings && settings.window_size !== savedWindowSizeRef.current) {
       await applyWindowSize(savedWindowSizeRef.current).catch((error) => {
         console.error("Failed to restore window size:", error);
       });
     }
+    // Discard any unsaved background preview: restore the persisted URL.
+    onBackgroundPreview?.(savedBackgroundRef.current);
     onClose?.();
   };
 
@@ -538,33 +715,82 @@ export default function SettingsWindow({
             {activeTab === "ai" && (
               <div>
                 <div className="settings-section-header">AI Provider</div>
+                <div className="settings-card" style={{ marginBottom: 16 }}>
+                  <div style={rowStyle(true)}>
+                    <label style={rowLabelStyle} htmlFor="ai-provider-select">
+                      AI Provider
+                    </label>
+                    <select
+                      id="ai-provider-select"
+                      className="omni-select"
+                      style={{ cursor: "pointer" }}
+                      value={activeProvider}
+                      onChange={(e) =>
+                        setActiveProvider(e.target.value as ProviderType)
+                      }
+                    >
+                      {PROVIDERS.map((p) => (
+                        <option key={p.value} value={p.value}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {activeProvider === "custom-provider" && (
+                  <CustomProviderFields
+                    draft={providerDrafts["custom-provider"]}
+                    update={(patch) =>
+                      updateProviderDraft("custom-provider", patch)
+                    }
+                    models={models}
+                    modelsLoading={modelsLoading}
+                    modelsError={modelsError}
+                    onDiscoverModels={fetchModels}
+                    rowStyle={rowStyle}
+                    rowLabelStyle={rowLabelStyle}
+                  />
+                )}
+                {activeProvider === "github-copilot" && (
+                  <CopilotProviderFields
+                    draft={providerDrafts["github-copilot"]}
+                    update={(patch) =>
+                      updateProviderDraft("github-copilot", patch)
+                    }
+                    onConnectionChange={setCopilotConnected}
+                    rowStyle={rowStyle}
+                    rowLabelStyle={rowLabelStyle}
+                  />
+                )}
+                {activeProvider === "azure-foundry" && (
+                  <AzureProviderFields
+                    draft={providerDrafts["azure-foundry"]}
+                    update={(patch) =>
+                      updateProviderDraft("azure-foundry", patch)
+                    }
+                    rowStyle={rowStyle}
+                    rowLabelStyle={rowLabelStyle}
+                  />
+                )}
+
+                {providerError ? (
+                  <div
+                    role="alert"
+                    className="window-size-error"
+                    style={{ display: "block", marginTop: 12 }}
+                  >
+                    {providerError}
+                  </div>
+                ) : null}
+
+                <div
+                  className="settings-section-header"
+                  style={{ marginTop: 20 }}
+                >
+                  Advanced
+                </div>
                 <div className="settings-card">
-                  <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>Provider URL</span>
-                    <input
-                      className="omni-input"
-                      value={settings.ai_base_url}
-                      onChange={(e) =>
-                        setSettings(
-                          (s) => s && { ...s, ai_base_url: e.target.value },
-                        )
-                      }
-                    />
-                  </div>
-                  <div style={rowStyle()}>
-                    <span style={rowLabelStyle}>API Key</span>
-                    <input
-                      className="omni-input"
-                      type="password"
-                      value={settings.ai_api_key}
-                      onChange={(e) =>
-                        setSettings(
-                          (s) => s && { ...s, ai_api_key: e.target.value },
-                        )
-                      }
-                      placeholder="(optional)"
-                    />
-                  </div>
                   <div style={rowStyle()}>
                     <span style={rowLabelStyle}>Timeout</span>
                     <input
@@ -649,7 +875,7 @@ export default function SettingsWindow({
                       title="Base backoff delay before the first retry; doubles on each subsequent retry plus jitter"
                     />
                   </div>
-                  <div style={rowStyle()}>
+                  <div style={rowStyle(true)}>
                     <span style={rowLabelStyle}>Loop Detector</span>
                     <label
                       style={{
@@ -675,71 +901,6 @@ export default function SettingsWindow({
                       />
                       <span>Enable AI loop detector</span>
                     </label>
-                  </div>
-                  <div
-                    ref={dropdownRef}
-                    style={{ ...rowStyle(true), position: "relative" }}
-                  >
-                    <span style={rowLabelStyle}>
-                      Model
-                      {modelsLoading && (
-                        <span style={{ color: "var(--accent)" }}>
-                          {" "}
-                          (loading…)
-                        </span>
-                      )}
-                      {modelsError && (
-                        <span
-                          style={{ color: "var(--error)" }}
-                          title={modelsError}
-                        >
-                          {" "}
-                          ⚠
-                        </span>
-                      )}
-                    </span>
-                    <div style={{ position: "relative", width: "100%" }}>
-                      <input
-                        ref={modelInputRef}
-                        className="omni-input"
-                        value={modelFilter}
-                        onChange={(e) => {
-                          setModelFilter(e.target.value);
-                          setSettings(
-                            (s) => s && { ...s, ai_model: e.target.value },
-                          );
-                          setShowModelDropdown(true);
-                        }}
-                        onFocus={() => setShowModelDropdown(true)}
-                        placeholder="Type to filter models…"
-                      />
-                      {showModelDropdown && filteredModels.length > 0 && (
-                        <div className="settings-popover">
-                          {filteredModels.map((m) => {
-                            const isSel = m === settings.ai_model;
-                            return (
-                              <div
-                                key={m}
-                                onClick={() => handleModelSelect(m)}
-                                className={`settings-popover__item${isSel ? " settings-popover__item--active" : ""}`}
-                              >
-                                {m}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {showModelDropdown &&
-                        !modelsLoading &&
-                        filteredModels.length === 0 &&
-                        models.length > 0 && (
-                          <div className="settings-popover">
-                            <div className="settings-popover__empty">
-                              No matches
-                            </div>
-                          </div>
-                        )}
-                    </div>
                   </div>
                 </div>
               </div>
@@ -804,9 +965,7 @@ export default function SettingsWindow({
                     </div>
                   </div>
                   <div
-                    style={rowStyle(
-                      !isCustomBg && bgSelectValue !== "__custom__",
-                    )}
+                    style={rowStyle(!showCustomBg)}
                   >
                     <span style={rowLabelStyle}>Background</span>
                     <select
@@ -815,10 +974,11 @@ export default function SettingsWindow({
                       value={bgSelectValue}
                       onChange={(e) => {
                         const val = e.target.value;
-                        if (val !== "__custom__") {
-                          setSettings(
-                            (s) => s && { ...s, background_url: val },
-                          );
+                        if (val === "__custom__") {
+                          setCustomBgMode(true);
+                        } else {
+                          setCustomBgMode(false);
+                          changeBackground(val);
                         }
                       }}
                     >
@@ -829,20 +989,60 @@ export default function SettingsWindow({
                       ))}
                     </select>
                   </div>
-                  {(bgSelectValue === "__custom__" || isCustomBg) && (
+                  {showCustomBg && (
                     <div style={rowStyle(true)}>
                       <span style={rowLabelStyle}>Image URL</span>
-                      <input
-                        className="omni-input"
-                        value={currentBgUrl}
-                        onChange={(e) =>
-                          setSettings(
-                            (s) =>
-                              s && { ...s, background_url: e.target.value },
-                          )
-                        }
-                        placeholder="https://example.com/image.jpg"
-                      />
+                      <div>
+                        <input
+                          className="omni-input"
+                          value={currentBgUrl}
+                          onChange={(e) => {
+                            setCustomBgMode(true);
+                            changeBackground(e.target.value);
+                          }}
+                          placeholder="https://example.com/image.jpg"
+                          aria-invalid={bgError ? true : undefined}
+                        />
+                        {bgError ? (
+                          <span
+                            role="alert"
+                            className="window-size-error"
+                            style={{ display: "block", marginTop: 6 }}
+                          >
+                            {bgError}
+                          </span>
+                        ) : null}
+                        {bgLoadError ? (
+                          <span
+                            role="alert"
+                            className="window-size-error"
+                            style={{ display: "block", marginTop: 6 }}
+                          >
+                            Could not load this image. The URL is kept — check
+                            it is reachable.
+                          </span>
+                        ) : null}
+                        {/* Hidden probe: detects whether the image actually
+                            loads at runtime so we can warn without discarding
+                            the user's draft URL. */}
+                        {isSafeBackgroundUrl(currentBgUrl) ? (
+                          <img
+                            data-testid="background-probe"
+                            src={currentBgUrl}
+                            alt=""
+                            aria-hidden="true"
+                            style={{
+                              position: "absolute",
+                              width: 1,
+                              height: 1,
+                              opacity: 0,
+                              pointerEvents: "none",
+                            }}
+                            onError={() => setBgLoadError(true)}
+                            onLoad={() => setBgLoadError(false)}
+                          />
+                        ) : null}
+                      </div>
                     </div>
                   )}
                 </div>

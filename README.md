@@ -89,39 +89,27 @@ Server-side A2A registration knobs belong to the upstream agent or hub configura
 - **GNU Make** — to run the `make` targets below.
 - **Tauri 2 platform prerequisites** — OS-specific system dependencies (e.g. WebKitGTK/GTK on Linux, build tools on macOS/Windows). Follow the official guide: https://v2.tauri.app/start/prerequisites/
 
-### Develop
+### Build & run
 
 ```bash
-make install
-make dev
-```
-
-- `make install` — install frontend dependencies with `npm ci`.
-- `make dev` — run the full Tauri dev app (`npm run tauri dev`). This starts the Vite frontend dev server and the desktop shell together, with hot reload across the whole app: frontend (React/Vite) changes refresh instantly, and Rust (`src-tauri`) changes trigger a rebuild and relaunch of the desktop window.
-
-### Release
-
-```bash
-make build
-make start
+make build   # build the single native binary
+make start   # launch the built binary
 ```
 
 - `make build` — build the release app with Tauri (`npm run tauri build`).
-- `make start` — launch the built release app (`npm start`).
+- `make start` — launch the built release binary (`npm start`).
 
-`make build` produces:
+`make build` produces the standalone desktop executable under `src-tauri/target/release/` (`omni-agent-desktop`, or `omni-agent-desktop.exe` on Windows), alongside platform installers/bundles (`.deb`/`.AppImage`/`.dmg`/`.msi`, etc.) under `src-tauri/target/release/bundle/`.
 
-- Platform installers/bundles (`.deb`/`.AppImage`/`.dmg`/`.msi`, etc.) under `src-tauri/target/release/bundle/`.
-- The standalone desktop executable under `src-tauri/target/release/`.
+### Develop & validate
 
-### Validation
+For hot-reload development and testing, use the npm scripts directly:
 
 ```bash
-make check
-make test
+npm ci                    # install dependencies
+npm run tauri dev         # run the Tauri dev app with hot reload
+npm test                  # frontend tests (Vitest)
+npm run test:launcher     # launcher script tests
+npm run build             # type-check and build the frontend
 ```
 
-- `make check` — type-check/build the frontend (`npm run build`) and run `cargo check` on the Tauri crate.
-- `make test` — run the frontend tests (Vitest) and the Rust tests (`cargo test`).
-- `make clean` — remove build artifacts (`dist/` plus `cargo clean`).
-- `make help` — show the list of supported make targets.

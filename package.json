@@ -10,8 +10,7 @@
     "test:launcher": "node --test scripts/start-release.test.mjs",
     "test:watch": "vitest",
     "start": "node scripts/start-release.mjs",
-    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
-    "make:help": "node -e \"console.log(['Omni Agent Desktop \\u2014 supported make targets:', '  help     Show this help message', '  install  Install dependencies (npm ci)', '  dev      Run the Tauri dev app (npm run tauri dev)', '  build    Build the Tauri app (npm run tauri build)', '  start    Launch the built release app (npm start)', '  test     Run frontend (vitest) and Rust (cargo) tests', '  check    Type-check/build frontend and cargo check', '  clean    Remove build artifacts (dist + cargo clean)'].join('\\n'))\""
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\""
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

@@ -1,35 +1,13 @@
 NPM ?= npm
-CARGO ?= cargo
-TAURI_DIR := src-tauri
 
-.DEFAULT_GOAL := help
+.DEFAULT_GOAL := build
 
-.PHONY: help install dev build start test check clean
+.PHONY: build start
 
-help:
-	@$(NPM) --silent run make:help
-
-install:
-	$(NPM) ci
-
-dev:
-	$(NPM) run tauri dev
-
+# Build the single native binary → src-tauri/target/release/omni-agent-desktop[.exe]
 build:
 	$(NPM) run tauri build
 
+# Run the built binary
 start:
 	$(NPM) start
-
-test:
-	$(NPM) test
-	$(NPM) run test:launcher
-	cd $(TAURI_DIR) && $(CARGO) test
-
-check:
-	$(NPM) run build
-	cd $(TAURI_DIR) && $(CARGO) check
-
-clean:
-	$(NPM) run clean
-	cd $(TAURI_DIR) && $(CARGO) clean

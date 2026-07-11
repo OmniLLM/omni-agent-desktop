@@ -2,9 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "./lib/runtime";
 import ChatPane from "./components/ChatPane";
 import Composer from "./components/Composer";
+import WelcomeScreen from "./components/WelcomeScreen";
 import ToolApprovalPrompt from "./components/ToolApprovalPrompt";
 import SettingsWindow from "./components/SettingsWindow";
-import SessionToolbar from "./components/SessionToolbar";
+import Sidebar, {
+  type WorkspaceView,
+  type Project,
+} from "./components/Sidebar";
 import GlobalKeyframes from "./components/GlobalKeyframes";
 import AppShell from "./components/AppShell";
 import { useAgent } from "./hooks/useAgent";
@@ -13,9 +17,20 @@ import type { AppSettings } from "./types/app";
 import { applyWindowSize, normalizeWindowSize } from "./lib/windowSize";
 import { parseThemeMode } from "./utils/theme";
 
+function newId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `p-${Date.now()}`;
+}
+
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
-  const [, setSettings] = useState<AppSettings | null>(null);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const [view, setView] = useState<WorkspaceView>("chat");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const { resolvedTheme, setTheme } = useTheme();
   const {
     messages,
@@ -64,8 +79,6 @@ export default function App() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
 
-  // Settings is invoked by Ctrl/Cmd+, (toggle) and dismissed by Escape —
-  // there is no visible settings button.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === ",") {
@@ -79,6 +92,21 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const handleNewProject = () => {
+    const name = window.prompt("Project name:")?.trim();
+    if (!name) return;
+    const project = { id: newId(), name };
+    setProjects((prev) => [...prev, project]);
+    setCurrentProjectId(project.id);
+  };
+
+  const handleNewTask = () => {
+    newSession();
+    setView("chat");
+  };
+
+  const isEmpty = messages.length === 0;
+
   return (
     <>
       <GlobalKeyframes />
@@ -88,40 +116,78 @@ export default function App() {
         isCompactMode={false}
         isAiMode={true}
       >
-        <div className="agent-root">
-          {showSettings ? (
-            <div
-              className="settings-overlay"
-              onMouseDown={(e) => {
-                if (e.target === e.currentTarget) requestCloseSettings();
-              }}
-            >
-              <div className="settings-sheet">
-                <SettingsWindow
-                  onClose={() => setShowSettings(false)}
-                  onThemeChange={setTheme}
-                  registerClose={(fn) => {
-                    settingsCloseRef.current = fn;
-                  }}
-                />
-              </div>
+        {showSettings ? (
+          <div
+            className="settings-overlay"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) requestCloseSettings();
+            }}
+          >
+            <div className="settings-sheet">
+              <SettingsWindow
+                onClose={() => setShowSettings(false)}
+                onThemeChange={setTheme}
+                registerClose={(fn) => {
+                  settingsCloseRef.current = fn;
+                }}
+              />
             </div>
-          ) : null}
-          <div className="agent-main">
-            <SessionToolbar
+          </div>
+        ) : null}
+
+        <div
+          className={`workspace${collapsed ? " workspace--collapsed" : ""}`}
+        >
+          {collapsed ? null : (
+            <Sidebar
+              collapsed={collapsed}
+              onToggleCollapse={() => setCollapsed((v) => !v)}
+              view={view}
+              onSelectView={setView}
               sessions={sessions}
               currentSessionId={currentSessionId}
-              onNew={newSession}
-              onSwitch={switchSession}
-              onDelete={deleteSession}
+              onNewTask={handleNewTask}
+              onSelectTask={(id) => {
+                setView("chat");
+                void switchSession(id);
+              }}
+              onDeleteTask={(id) => void deleteSession(id)}
+              projects={projects}
+              currentProjectId={currentProjectId}
+              onSelectProject={setCurrentProjectId}
+              onNewProject={handleNewProject}
+              onOpenSettings={() => setShowSettings(true)}
             />
-            <div className="chat-scroll" ref={scrollRef}>
-              <ChatPane messages={messages} loading={loading} />
-            </div>
-            {pendingApproval ? (
-              <ToolApprovalPrompt call={pendingApproval} onDecide={decide} />
-            ) : null}
-            <Composer onSend={send} disabled={loading} />
+          )}
+
+          <div className="workspace-main">
+            {view === "chat" ? (
+              <>
+                <div className="workspace-main__scroll" ref={scrollRef}>
+                  {isEmpty ? (
+                    <WelcomeScreen onPick={(text) => void send(text)} />
+                  ) : (
+                    <ChatPane messages={messages} loading={loading} />
+                  )}
+                </div>
+                {pendingApproval ? (
+                  <ToolApprovalPrompt call={pendingApproval} onDecide={decide} />
+                ) : null}
+                <Composer
+                  onSend={send}
+                  disabled={loading}
+                  model={settings?.ai_model ?? ""}
+                />
+              </>
+            ) : (
+              <div className="workspace-main__scroll">
+                <div style={{ padding: 40, color: "var(--sub)" }}>
+                  {view === "scheduled"
+                    ? "Scheduled tasks — coming soon."
+                    : "Plugins — coming soon."}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </AppShell>

@@ -38,24 +38,30 @@ vi.mock("./lib/runtime", () => ({
 }));
 
 describe("App", () => {
-  it("renders the composer and no launcher search", async () => {
+  it("renders the workspace composer and no launcher search", async () => {
     render(<App />);
     expect(
-      await screen.findByPlaceholderText(/ask the agent/i),
+      await screen.findByPlaceholderText(/do anything/i),
     ).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/search/i)).toBeNull();
   });
 
-  it("renders compact session controls instead of a session sidebar", async () => {
+  it("renders the workspace sidebar with New task and Settings", async () => {
     render(<App />);
     expect(
-      await screen.findByRole("button", { name: /new chat/i }),
+      await screen.findByRole("button", { name: /new task/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /new conversation/i }),
+      screen.getByRole("button", { name: /^settings$/i }),
     ).toBeInTheDocument();
-    expect(document.querySelector(".session-bar")).toBeNull();
-    expect(document.querySelector(".session-toolbar")).not.toBeNull();
+    expect(document.querySelector(".sidebar")).not.toBeNull();
+  });
+
+  it("shows the welcome empty-state when there are no messages", async () => {
+    render(<App />);
+    expect(
+      await screen.findByText(/what should we get done/i),
+    ).toBeInTheDocument();
   });
 
   it("applies the saved window size after settings load", async () => {

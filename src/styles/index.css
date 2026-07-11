@@ -12,6 +12,7 @@
 @import "./layout/launcher.css";
 @import "./layout/chat.css";
 @import "./layout/agent.css";
+@import "./layout/workspace.css";
 
 /* components (in original section order) */
 @import "./components/chat-bubbles.css";

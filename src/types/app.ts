@@ -44,6 +44,8 @@ export type ApiShape =
   | "anthropic-messages"
   | "openai-responses";
 
+export type WindowSizePreset = "compact" | "standard" | "large";
+
 export interface ProviderConfig {
   endpoint: string;
   api_key: string;
@@ -81,5 +83,7 @@ export interface AppSettings {
   /** Deprecated compatibility field. Desktop no longer connects to the
    * OmniLauncher REST backend; task/tool execution uses A2A endpoints. */
   backend_url: string;
+  /** Persisted window size preset applied at startup and via Preferences. */
+  window_size: WindowSizePreset;
 }
 

@@ -52,6 +52,41 @@ impl Default for ApiShape {
 }
 
 // ---------------------------------------------------------------------------
+// Window size preset
+// ---------------------------------------------------------------------------
+
+/// The persisted window size preset. Serializes as kebab-case. Unknown values
+/// (e.g. from a future release) normalize back to `Standard` on load so the
+/// setting remains backward/forward compatible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WindowSizePreset {
+    Compact,
+    Standard,
+    Large,
+}
+
+impl Default for WindowSizePreset {
+    fn default() -> Self {
+        WindowSizePreset::Standard
+    }
+}
+
+impl<'de> Deserialize<'de> for WindowSizePreset {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Ok(match raw.as_str() {
+            "compact" => WindowSizePreset::Compact,
+            "large" => WindowSizePreset::Large,
+            _ => WindowSizePreset::Standard,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Provider config
 // ---------------------------------------------------------------------------
 
@@ -207,6 +242,8 @@ pub struct AppSettings {
     /// OmniLauncher REST backend URL; task/tool execution is A2A.
     #[serde(default)]
     pub backend_url: String,
+    #[serde(default)]
+    pub window_size: WindowSizePreset,
 }
 
 impl Default for AppSettings {
@@ -229,6 +266,7 @@ impl Default for AppSettings {
             a2a_connections: Vec::new(),
             run_mode: crate::agent::RunMode::default(),
             backend_url: String::new(),
+            window_size: WindowSizePreset::default(),
         }
     }
 }
@@ -504,6 +542,33 @@ mod tests {
         let s: AppSettings = serde_json::from_str("{}").unwrap();
         assert!(s.a2a_connections.is_empty());
         assert_eq!(s.run_mode, crate::agent::RunMode::Ask);
+    }
+
+    // --- Window size preset -------------------------------------------------
+
+    #[test]
+    fn window_size_defaults_to_standard() {
+        let s: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(s.window_size, WindowSizePreset::Standard);
+    }
+
+    #[test]
+    fn window_size_presets_roundtrip() {
+        for preset in [
+            WindowSizePreset::Compact,
+            WindowSizePreset::Standard,
+            WindowSizePreset::Large,
+        ] {
+            let json = serde_json::to_string(&preset).unwrap();
+            let back: WindowSizePreset = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, preset);
+        }
+    }
+
+    #[test]
+    fn unknown_window_size_normalizes_to_standard() {
+        let s: AppSettings = serde_json::from_str(r#"{"window_size":"future-size"}"#).unwrap();
+        assert_eq!(s.window_size, WindowSizePreset::Standard);
     }
 
     // --- Legacy migration ---------------------------------------------------

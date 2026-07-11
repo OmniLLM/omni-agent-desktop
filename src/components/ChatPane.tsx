@@ -36,6 +36,49 @@ function WorkingIndicator() {
   );
 }
 
+/** Copy / thumbs action row shown under an assistant message (M365 Copilot style). */
+function MessageActions({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+  return (
+    <div className="msg-actions">
+      <button
+        type="button"
+        className="msg-action"
+        aria-label={copied ? "Copied" : "Copy"}
+        title={copied ? "Copied" : "Copy"}
+        onClick={copy}
+      >
+        {copied ? "✓" : "⧉"}
+      </button>
+      <button
+        type="button"
+        className="msg-action"
+        aria-label="Good response"
+        title="Good response"
+      >
+        👍
+      </button>
+      <button
+        type="button"
+        className="msg-action"
+        aria-label="Bad response"
+        title="Bad response"
+      >
+        👎
+      </button>
+    </div>
+  );
+}
+
 export default function ChatPane({
   messages,
   loading = false,
@@ -60,10 +103,12 @@ export default function ChatPane({
         }
         return (
           <div key={i} className={`bubble ${m.role}`}>
-            <div className="role">{m.role}</div>
             <div className="content">{m.content}</div>
             {m.tools_used?.length ? (
               <div className="tools">tools: {m.tools_used.join(", ")}</div>
+            ) : null}
+            {m.role === "assistant" ? (
+              <MessageActions content={m.content} />
             ) : null}
           </div>
         );

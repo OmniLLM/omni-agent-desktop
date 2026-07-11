@@ -41,7 +41,7 @@ describe("App", () => {
   it("renders the workspace composer and no launcher search", async () => {
     render(<App />);
     expect(
-      await screen.findByPlaceholderText(/do anything/i),
+      await screen.findByPlaceholderText(/message the agent/i),
     ).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/search/i)).toBeNull();
   });

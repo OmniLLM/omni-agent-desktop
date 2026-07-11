@@ -211,8 +211,8 @@
 .bubble {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  max-width: 88%;
+  gap: 6px;
+  max-width: 100%;
   animation: agent-bubble-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -227,50 +227,37 @@
   }
 }
 
-.bubble .role {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--sub);
-  padding: 0 2px;
-  opacity: 0.75;
-}
-
 .bubble .content {
-  padding: 11px 15px;
-  border-radius: 16px;
-  font-size: 14.5px;
-  line-height: 1.55;
+  font-size: 15px;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
-  box-shadow: var(--shadow);
 }
 
-/* User: accent bubble, right-aligned */
+/* User: subtle right-aligned pill (M365 Copilot style) */
 .bubble.user {
   align-self: flex-end;
   align-items: flex-end;
+  max-width: 78%;
 }
 
 .bubble.user .content {
-  background: var(--user-bubble);
-  color: var(--user-bubble-text);
-  border-bottom-right-radius: 5px;
+  padding: 10px 16px;
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
 }
 
-/* Assistant: surface bubble, left-aligned, accent hairline */
+/* Assistant: plain text, full width, no bubble or label */
 .bubble.assistant {
-  align-self: flex-start;
+  align-self: stretch;
   align-items: flex-start;
+  max-width: 100%;
 }
 
 .bubble.assistant .content {
-  background: var(--ai-bubble);
-  color: var(--ai-text);
-  border: 1px solid var(--border);
-  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  border-bottom-left-radius: 5px;
+  color: var(--text);
 }
 
 .bubble .tools {
@@ -278,6 +265,40 @@
   color: var(--sub);
   padding: 0 2px;
   font-variant-numeric: tabular-nums;
+}
+
+/* Assistant message action row: copy / thumbs */
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  opacity: 0.75;
+  transition: opacity 0.15s ease;
+}
+
+.bubble.assistant:hover .msg-actions {
+  opacity: 1;
+}
+
+.msg-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--sub);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.msg-action:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 /* === Thinking / action trace ===

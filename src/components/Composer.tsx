@@ -95,7 +95,7 @@ export default function Composer({
               submit();
             }
           }}
-          placeholder="Do anything"
+          placeholder="Message the agent"
           rows={1}
         />
         <div className="composer2__controls">
@@ -192,6 +192,9 @@ export default function Composer({
           </button>
         </div>
       </div>
+      <p className="composer2__disclaimer">
+        AI-generated content may be incorrect
+      </p>
     </div>
   );
 }

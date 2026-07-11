@@ -364,9 +364,9 @@
 
 .composer2__box {
   border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--surface);
-  padding: 12px 14px 10px;
+  border-radius: 26px;
+  background: color-mix(in srgb, var(--surface) 70%, var(--bg));
+  padding: 14px 18px 12px;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
@@ -705,4 +705,13 @@
   padding: 7px 10px;
   font-size: 12.5px;
   color: var(--sub);
+}
+
+/* M365-style disclaimer under the composer */
+.composer2__disclaimer {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--sub);
+  opacity: 0.75;
 }

@@ -198,7 +198,7 @@ export async function delegateA2aTask(args: DelegateA2aTaskArgs): Promise<string
     endpoint,
     args.token,
     taskId,
-    args.maxPollAttempts ?? 120,
+    args.maxPollAttempts ?? 600,
     args.pollIntervalMs ?? 500,
   );
   const completedState = String(completed?.status?.state || "");

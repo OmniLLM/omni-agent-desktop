@@ -198,7 +198,12 @@ pub async fn delegate(
     if task_id.is_empty() {
         return Err("A2A task returned no id or text".into());
     }
-    for attempt in 0..120 {
+    // Poll until the task reaches a terminal state, bounded by elapsed wall time
+    // rather than a fixed attempt count so long-running skills (e.g. a cloud
+    // inventory scan across hundreds of projects) have time to finish.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+    let mut attempt: u64 = 0;
+    while std::time::Instant::now() < deadline {
         let got = post_rpc(
             client,
             &tool.endpoint,
@@ -220,9 +225,12 @@ pub async fn delegate(
                 t
             });
         }
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        attempt += 1;
+        // Gentle backoff: 500ms early, easing to 2s for long-running tasks.
+        let delay_ms = if attempt < 20 { 500 } else { 2000 };
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
     }
-    Err("A2A task did not reach terminal state".into())
+    Err("A2A task did not reach terminal state within 10 minutes".into())
 }
 
 /// Fetch an agent card from the well-known discovery paths.

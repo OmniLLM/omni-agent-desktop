@@ -715,3 +715,50 @@
   color: var(--sub);
   opacity: 0.75;
 }
+
+/* === Custom window titlebar (frameless window controls) === */
+.titlebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 32px;
+  z-index: 200;
+  display: flex;
+  align-items: stretch;
+}
+
+/* Drag pad to the left of the buttons so the top-right corner can move the
+   window without covering the sidebar's own top-left controls. */
+.titlebar__drag {
+  width: 140px;
+  -webkit-app-region: drag;
+}
+
+.titlebar__controls {
+  display: flex;
+  align-items: center;
+}
+
+.titlebar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar__btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.titlebar__btn--close:hover {
+  background: #e81123;
+  color: #ffffff;
+}

@@ -714,5 +714,12 @@ export function getCurrentWebviewWindow() {
       if (!httpMode()) return;
       await httpJson("/api/window/hide", { method: "POST" });
     },
+    // Window controls are no-ops in browser/dev mode (no native window).
+    async minimize() {},
+    async toggleMaximize() {},
+    async isMaximized() {
+      return false;
+    },
+    async close() {},
   };
 }

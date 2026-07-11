@@ -7,6 +7,7 @@ import ScheduledView from "./components/ScheduledView";
 import ToolApprovalPrompt from "./components/ToolApprovalPrompt";
 import SettingsWindow from "./components/SettingsWindow";
 import Sidebar, { type WorkspaceView } from "./components/Sidebar";
+import Titlebar from "./components/Titlebar";
 import GlobalKeyframes from "./components/GlobalKeyframes";
 import AppShell from "./components/AppShell";
 import { useAgent } from "./hooks/useAgent";
@@ -132,6 +133,7 @@ export default function App() {
         isCompactMode={false}
         isAiMode={true}
       >
+        <Titlebar />
         {showSettings ? (
           <div
             className="settings-overlay"

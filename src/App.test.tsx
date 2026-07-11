@@ -1,6 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import App from "./App";
+
+const applyWindowSize = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("./lib/windowSize", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./lib/windowSize")>();
+  return { ...actual, applyWindowSize };
+});
 
 vi.mock("./lib/runtime", () => ({
   invoke: vi.fn(async (cmd: string) => {
@@ -23,6 +29,7 @@ vi.mock("./lib/runtime", () => ({
         max_results: 10,
         background_url: "",
         backend_url: "",
+        window_size: "compact",
       };
     return undefined;
   }),
@@ -49,5 +56,12 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(document.querySelector(".session-bar")).toBeNull();
     expect(document.querySelector(".session-toolbar")).not.toBeNull();
+  });
+
+  it("applies the saved window size after settings load", async () => {
+    render(<App />);
+    await waitFor(() =>
+      expect(applyWindowSize).toHaveBeenCalledWith("compact"),
+    );
   });
 });

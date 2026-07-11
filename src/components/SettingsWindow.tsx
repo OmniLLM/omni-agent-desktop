@@ -80,9 +80,15 @@ interface Props {
   onClose?: () => void;
   /** Apply a theme change immediately (before Save) so the UI reflects it live. */
   onThemeChange?: (theme: "dark" | "light") => void;
+  /** Register the rollback-aware close handler so the host can route Escape/backdrop through it. */
+  registerClose?: (close: () => Promise<void>) => void;
 }
 
-export default function SettingsWindow({ onClose, onThemeChange }: Props = {}) {
+export default function SettingsWindow({
+  onClose,
+  onThemeChange,
+  registerClose,
+}: Props = {}) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [hotkeyStatus, setHotkeyStatus] = useState<SaveStatus>("idle");
@@ -236,6 +242,14 @@ export default function SettingsWindow({ onClose, onThemeChange }: Props = {}) {
     }
     onClose?.();
   };
+
+  const closeSettingsRef = useRef(closeSettings);
+  closeSettingsRef.current = closeSettings;
+
+  useEffect(() => {
+    registerClose?.(() => closeSettingsRef.current());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const updateA2a = (index: number, patch: Partial<A2aConnection>) => {
     setSettings(

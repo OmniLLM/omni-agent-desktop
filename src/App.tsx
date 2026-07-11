@@ -10,6 +10,7 @@ import AppShell from "./components/AppShell";
 import { useAgent } from "./hooks/useAgent";
 import { useTheme } from "./hooks/useTheme";
 import type { AppSettings } from "./types/app";
+import { applyWindowSize, normalizeWindowSize } from "./lib/windowSize";
 import { parseThemeMode } from "./utils/theme";
 
 export default function App() {
@@ -29,12 +30,31 @@ export default function App() {
     deleteSession,
   } = useAgent();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const settingsCloseRef = useRef<(() => Promise<void>) | null>(null);
+  const showSettingsRef = useRef(false);
+
+  useEffect(() => {
+    showSettingsRef.current = showSettings;
+  }, [showSettings]);
+
+  const requestCloseSettings = () => {
+    const closer = settingsCloseRef.current;
+    if (closer) {
+      void closer();
+    } else {
+      setShowSettings(false);
+    }
+  };
 
   useEffect(() => {
     invoke<AppSettings>("get_settings")
       .then((s) => {
-        setSettings(s);
+        const preset = normalizeWindowSize(s?.window_size);
+        setSettings({ ...s, window_size: preset });
         if (s?.theme) setTheme(parseThemeMode(s.theme));
+        void applyWindowSize(preset).catch((error) => {
+          console.error("Failed to apply saved window size:", error);
+        });
       })
       .catch(() => {});
   }, [setTheme]);
@@ -52,7 +72,7 @@ export default function App() {
         e.preventDefault();
         setShowSettings((v) => !v);
       } else if (e.key === "Escape") {
-        setShowSettings((v) => (v ? false : v));
+        if (showSettingsRef.current) requestCloseSettings();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -73,13 +93,16 @@ export default function App() {
             <div
               className="settings-overlay"
               onMouseDown={(e) => {
-                if (e.target === e.currentTarget) setShowSettings(false);
+                if (e.target === e.currentTarget) requestCloseSettings();
               }}
             >
               <div className="settings-sheet">
                 <SettingsWindow
                   onClose={() => setShowSettings(false)}
                   onThemeChange={setTheme}
+                  registerClose={(fn) => {
+                    settingsCloseRef.current = fn;
+                  }}
                 />
               </div>
             </div>

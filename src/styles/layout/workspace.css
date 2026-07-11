@@ -762,3 +762,27 @@
   background: #e81123;
   color: #ffffff;
 }
+
+/* Model picker filter input */
+.composer2__menu-filter {
+  width: calc(100% - 12px);
+  margin: 2px 6px 6px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.composer2__menu-filter:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.composer2__menu-filter::placeholder {
+  color: var(--sub);
+}

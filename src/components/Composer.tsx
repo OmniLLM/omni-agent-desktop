@@ -28,7 +28,9 @@ export default function Composer({
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
   const [models, setModels] = useState<string[]>([]);
+  const [filter, setFilter] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
+  const filterRef = useRef<HTMLInputElement>(null);
 
   const activeProvider = settings?.active_provider ?? "custom-provider";
   const activeModel = settings?.ai_model ?? "";
@@ -79,8 +81,20 @@ export default function Composer({
     };
   }, [open, activeProvider, activeConfig]);
 
-  const modelOptions =
+  // Reset the filter and focus the filter box each time the picker opens.
+  useEffect(() => {
+    if (open) {
+      setFilter("");
+      const id = window.setTimeout(() => filterRef.current?.focus(), 0);
+      return () => window.clearTimeout(id);
+    }
+  }, [open]);
+
+  const allModels =
     models.length > 0 ? models : activeModel ? [activeModel] : [];
+  const modelOptions = filter.trim()
+    ? allModels.filter((m) => m.toLowerCase().includes(filter.toLowerCase()))
+    : allModels;
 
   return (
     <div className="composer2">
@@ -154,9 +168,23 @@ export default function Composer({
                   </button>
                 ))}
                 <div className="composer2__menu-group">Model</div>
+                <input
+                  ref={filterRef}
+                  type="text"
+                  className="composer2__menu-filter"
+                  placeholder="Filter models…"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && modelOptions.length > 0) {
+                      onModelChange?.(activeProvider, modelOptions[0]);
+                      setOpen(false);
+                    }
+                  }}
+                />
                 {modelOptions.length === 0 ? (
                   <div className="composer2__menu-empty">
-                    No models available
+                    {filter.trim() ? "No matches" : "No models available"}
                   </div>
                 ) : (
                   modelOptions.map((m) => (

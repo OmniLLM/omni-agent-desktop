@@ -99,6 +99,24 @@ describe("Composer", () => {
     expect(onModelChange).toHaveBeenCalledWith("github-copilot", "");
   });
 
+  it("filters models as you type in the picker", async () => {
+    const user = userEvent.setup();
+    render(
+      <Composer onSend={vi.fn()} disabled={false} settings={makeSettings()} />,
+    );
+    await user.click(screen.getByRole("button", { name: /gpt-5\.4/i }));
+    const filterBox = screen.getByPlaceholderText(/filter models/i);
+    // The active model appears as an option; a matching filter keeps it.
+    await user.type(filterBox, "gpt");
+    expect(
+      screen.getByRole("option", { name: /^gpt-5\.4$/i }),
+    ).toBeInTheDocument();
+    // A non-matching filter shows the "No matches" empty state.
+    await user.clear(filterBox);
+    await user.type(filterBox, "zzz");
+    expect(screen.getByText(/no matches/i)).toBeInTheDocument();
+  });
+
   it("toggles Approve for me and reports the new value", async () => {
     const onToggleApprove = vi.fn();
     render(

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const repoRoot = process.cwd();
 
@@ -44,4 +46,13 @@ describe("Make/ops desktop app handling", () => {
     expect(output).toContain("grep -a -q '<!doctype html>'");
     expect(output).toContain("Verified embedded frontend");
   }, MAKE_TIMEOUT_MS);
+
+  it("bundle icon list includes the Windows .ico and keeps the .png", () => {
+    const config = JSON.parse(
+      readFileSync(join(repoRoot, "src-tauri", "tauri.conf.json"), "utf8"),
+    );
+    const icons: string[] = config.bundle.icon;
+    expect(icons).toContain("icons/icon.ico");
+    expect(icons).toContain("icons/icon.png");
+  });
 });

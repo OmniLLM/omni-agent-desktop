@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../lib/runtime";
-import type { ChatMessage, SessionInfo, ToolCallEvent } from "../types/app";
+import type {
+  ChatMessage,
+  RunMode,
+  SessionInfo,
+  ToolCallEvent,
+} from "../types/app";
 
 export interface UseAgentResult {
   messages: ChatMessage[];
@@ -8,7 +13,7 @@ export interface UseAgentResult {
   pendingApproval: ToolCallEvent | null;
   sessions: SessionInfo[];
   currentSessionId: string | null;
-  send: (text: string) => Promise<void>;
+  send: (text: string, mode?: RunMode) => Promise<void>;
   decide: (decision: "approve" | "deny" | "allow_session") => Promise<void>;
   newSession: () => void;
   switchSession: (id: string) => Promise<void>;
@@ -183,7 +188,7 @@ export function useAgent(): UseAgentResult {
   }, []);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, mode: RunMode = "ask") => {
       if (!text.trim()) return;
       // History is the prior conversation, before this new question.
       const history = conversationHistory(messages);
@@ -191,10 +196,10 @@ export function useAgent(): UseAgentResult {
       setMessages((prev) => [...prev, { role: "user", content: text }]);
       setLoading(true);
       try {
-        // Always run in "ask" mode: mutating local tools prompt for permission.
-        // Pass prior turns so the agent has conversation context (the native
-        // side assembles the context window and injects memory).
-        await invoke("agent_run", { message: text, mode: "ask", history });
+        // Mode is caller-controlled: "ask" prompts for mutating tools,
+        // "autopilot" (Approve-for-me) auto-approves. The native side
+        // assembles the context window and injects memory.
+        await invoke("agent_run", { message: text, mode, history });
       } catch (e) {
         setMessages((prev) => [
           ...prev,

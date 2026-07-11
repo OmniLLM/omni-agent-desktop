@@ -31,6 +31,7 @@ export default function App() {
   const [view, setView] = useState<WorkspaceView>("chat");
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [approveForMe, setApproveForMe] = useState(false);
   const { resolvedTheme, setTheme } = useTheme();
   const {
     messages,
@@ -105,6 +106,11 @@ export default function App() {
     setView("chat");
   };
 
+  const submit = (text: string) => {
+    void send(text, approveForMe ? "autopilot" : "ask");
+  };
+
+  const currentProject = projects.find((p) => p.id === currentProjectId);
   const isEmpty = messages.length === 0;
 
   return (
@@ -165,7 +171,7 @@ export default function App() {
               <>
                 <div className="workspace-main__scroll" ref={scrollRef}>
                   {isEmpty ? (
-                    <WelcomeScreen onPick={(text) => void send(text)} />
+                    <WelcomeScreen onPick={submit} />
                   ) : (
                     <ChatPane messages={messages} loading={loading} />
                   )}
@@ -174,9 +180,21 @@ export default function App() {
                   <ToolApprovalPrompt call={pendingApproval} onDecide={decide} />
                 ) : null}
                 <Composer
-                  onSend={send}
+                  onSend={submit}
                   disabled={loading}
                   model={settings?.ai_model ?? ""}
+                  projectName={currentProject?.name ?? null}
+                  onChooseProject={() => {
+                    if (projects.length === 0) handleNewProject();
+                    else
+                      setCurrentProjectId(
+                        currentProjectId
+                          ? null
+                          : (projects[0]?.id ?? null),
+                      );
+                  }}
+                  approveForMe={approveForMe}
+                  onToggleApprove={setApproveForMe}
                 />
               </>
             ) : (

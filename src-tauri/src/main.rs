@@ -745,6 +745,29 @@ fn save_projects(projects: serde_json::Value) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
+// Scheduled tasks (recurring/one-shot agent prompts)
+// ---------------------------------------------------------------------------
+
+fn scheduled_path() -> PathBuf {
+    config_dir().join("scheduled.json")
+}
+
+/// List saved scheduled tasks (array), empty if none exist yet.
+#[tauri::command]
+fn list_scheduled() -> serde_json::Value {
+    fs::read_to_string(scheduled_path())
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| serde_json::json!([]))
+}
+
+/// Overwrite the full scheduled-task list.
+#[tauri::command]
+fn save_scheduled(scheduled: serde_json::Value) -> Result<(), String> {
+    settings::atomic_write(&scheduled_path(), &scheduled.to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Memory (cross-session)
 // ---------------------------------------------------------------------------
 
@@ -800,6 +823,8 @@ fn main() {
             delete_session,
             list_projects,
             save_projects,
+            list_scheduled,
+            save_scheduled,
             get_memory,
             save_memory,
         ])

@@ -3,6 +3,8 @@ import { invoke } from "./lib/runtime";
 import ChatPane from "./components/ChatPane";
 import Composer from "./components/Composer";
 import WelcomeScreen from "./components/WelcomeScreen";
+import ScheduledView from "./components/ScheduledView";
+import PluginsView from "./components/PluginsView";
 import ToolApprovalPrompt from "./components/ToolApprovalPrompt";
 import SettingsWindow from "./components/SettingsWindow";
 import Sidebar, {
@@ -218,11 +220,19 @@ export default function App() {
               </>
             ) : (
               <div className="workspace-main__scroll">
-                <div style={{ padding: 40, color: "var(--sub)" }}>
-                  {view === "scheduled"
-                    ? "Scheduled tasks — coming soon."
-                    : "Plugins — coming soon."}
-                </div>
+                {view === "scheduled" ? (
+                  <ScheduledView
+                    onRun={(prompt) => {
+                      setView("chat");
+                      submit(prompt);
+                    }}
+                  />
+                ) : (
+                  <PluginsView
+                    connections={settings?.a2a_connections ?? []}
+                    onManage={() => setShowSettings(true)}
+                  />
+                )}
               </div>
             )}
           </div>

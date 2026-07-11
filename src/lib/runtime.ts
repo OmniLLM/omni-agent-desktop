@@ -140,6 +140,8 @@ const TAURI_NATIVE_COMMANDS = new Set<string>([
   "delete_session",
   "list_projects",
   "save_projects",
+  "list_scheduled",
+  "save_scheduled",
   "get_memory",
   "save_memory",
 ]);
@@ -626,6 +628,12 @@ export async function invoke<T = unknown>(
     return [] as T;
   }
   if (cmd === "save_projects") {
+    return undefined as T;
+  }
+  if (cmd === "list_scheduled") {
+    return [] as T;
+  }
+  if (cmd === "save_scheduled") {
     return undefined as T;
   }
   if (cmd === "current_ai_session") {

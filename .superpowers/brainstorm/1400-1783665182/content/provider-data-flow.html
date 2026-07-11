@@ -1,0 +1,32 @@
+<h2>Authentication and request flow</h2>
+<p class="subtitle">Native commands isolate provider behavior from the React preferences and chat UI</p>
+
+<div class="mockup">
+  <div class="mockup-header">GitHub Copilot device flow</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;align-items:stretch">
+      <div style="border:1px solid var(--border);border-radius:10px;padding:14px"><div class="label">1</div><strong>Start sign-in</strong><p style="font-size:13px">React invokes native command</p></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:14px"><div class="label">2</div><strong>Show code</strong><p style="font-size:13px">Open GitHub device page</p></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:14px"><div class="label">3</div><strong>Poll safely</strong><p style="font-size:13px">Respect interval, slow_down, expiry</p></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:14px"><div class="label">4</div><strong>Connected</strong><p style="font-size:13px">Store token locally; fetch models</p></div>
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top:18px">
+  <div class="mockup-header">Chat request</div>
+  <div class="mockup-body">
+    <div style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap">
+      <div style="border:1px solid var(--border);border-radius:9px;padding:12px">Chat UI</div><b>→</b>
+      <div style="border:1px solid var(--border);border-radius:9px;padding:12px">Provider service</div><b>→</b>
+      <div style="border:1px solid var(--border);border-radius:9px;padding:12px">Request builder</div><b>→</b>
+      <div style="border:1px solid var(--border);border-radius:9px;padding:12px">Provider API</div><b>→</b>
+      <div style="border:1px solid var(--border);border-radius:9px;padding:12px">Normalized events</div>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons" style="margin-top:18px">
+  <div class="pros"><h4>Recoverable</h4><ul><li>Network/model discovery failures keep manual model entry</li><li>Expired Copilot auth returns to disconnected state</li><li>Save failures retain draft form values</li></ul></div>
+  <div class="cons"><h4>Blocked states</h4><ul><li>Missing endpoint, key, or model prevents Save</li><li>Unauthenticated Copilot prevents provider activation</li><li>Invalid provider responses surface actionable errors</li></ul></div>
+</div>

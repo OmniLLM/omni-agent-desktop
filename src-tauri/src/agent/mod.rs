@@ -2,6 +2,7 @@
 //! and the agent loop.
 
 pub mod a2a;
+pub mod context;
 pub mod provider;
 pub mod tools;
 

@@ -32,6 +32,7 @@ describe("useAgent", () => {
     expect(invoke).toHaveBeenCalledWith("agent_run", {
       message: "hello",
       mode: "ask",
+      history: [],
     });
     expect(result.current.messages[0]).toMatchObject({
       role: "user",

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod agent;
+mod memory;
 mod settings;
 
 use base64::Engine;
@@ -367,6 +368,7 @@ async fn agent_run(
     registry: State<'_, ApprovalRegistry>,
     message: String,
     mode: agent::RunMode,
+    history: Option<Vec<serde_json::Value>>,
 ) -> Result<(), String> {
     let settings = load_desktop_settings();
     let client = http_client();
@@ -388,22 +390,54 @@ async fn agent_run(
         }
     }
 
-    let system = "You are Omni Agent, a helpful desktop AI agent with local tools and A2A skills.\n\
+    let base_prompt = "You are Omni Agent, a helpful desktop AI agent with local tools and A2A skills.\n\
         Always format your final answer as clean, well-structured Markdown:\n\
         - Use headings, bold for key figures, and bullet lists for related items.\n\
         - Present tabular or multi-field data as a Markdown table.\n\
         - Put code, commands, paths, and identifiers in backticks or fenced code blocks.\n\
         - Lead with the direct answer, then supporting detail; keep it concise and easy to scan.";
-    let mut msgs = vec![agent::provider::Msg {
+
+    // Cross-session memory: MEMORY.md + recent daily logs, read at startup and
+    // injected into the system block (Harness Engineering Guide recall cycle).
+    let base = config_dir();
+    let startup_memory = memory::read_startup_memory(&base);
+
+    // Assemble the system context each turn against a token budget, packing by
+    // priority with response headroom reserved via the history budget below.
+    let mut assembler = agent::context::ContextAssembler::new(4000);
+    assembler
+        .add(0, "system", base_prompt)
+        .add(2, "memory", &startup_memory);
+    let system = assembler.build();
+
+    // Reconstruct conversation context from the session history (user/assistant
+    // turns only — thinking traces and tool results are not resent), then pack
+    // it with a sliding window so long conversations stay within budget.
+    let mut prior: Vec<agent::provider::Msg> = Vec::new();
+    if let Some(hist) = &history {
+        for m in hist {
+            let role = m["role"].as_str().unwrap_or("");
+            let content = m["content"].as_str().unwrap_or("");
+            if (role == "user" || role == "assistant") && !content.is_empty() {
+                prior.push(agent::provider::Msg {
+                    role: role.to_string(),
+                    content: content.to_string(),
+                });
+            }
+        }
+    }
+    prior.push(agent::provider::Msg {
         role: "user".into(),
-        content: message,
-    }];
+        content: message.clone(),
+    });
+    // Budget for conversation history; leaves headroom for the model's reply.
+    let mut msgs = agent::context::pack_history(&prior, 16_000, 12);
     let max = settings.ai_max_tool_iterations.max(1);
     let mut session_allow: std::collections::HashSet<String> = Default::default();
     let mut counter: u64 = 0;
 
     for _ in 0..max {
-        let turn = match call_provider(&client, &config, system, &msgs, &tool_defs).await {
+        let turn = match call_provider(&client, &config, &system, &msgs, &tool_defs).await {
             Ok(t) => t,
             Err(e) => {
                 let _ = app.emit("agent://error", e.clone());
@@ -411,6 +445,9 @@ async fn agent_run(
             }
         };
         if turn.tool_calls.is_empty() {
+            // Record the exchange in today's daily log (Tier-1 memory).
+            let logged: String = message.chars().take(120).collect();
+            memory::append_daily_log(&base, &format!("Q: {logged}"));
             let _ = app.emit("agent://done", turn.text.clone());
             return Ok(());
         }
@@ -587,6 +624,119 @@ fn save_conversation(messages: serde_json::Value) -> Result<(), String> {
     settings::atomic_write(&conversation_path(), &messages.to_string())
 }
 
+// ---------------------------------------------------------------------------
+// Sessions (per-conversation persistence)
+// ---------------------------------------------------------------------------
+
+fn sessions_dir() -> PathBuf {
+    let dir = config_dir().join("sessions");
+    let _ = fs::create_dir_all(&dir);
+    dir
+}
+
+fn session_path(id: &str) -> PathBuf {
+    // Sanitize the id so it can't escape the sessions directory.
+    let safe: String = id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    sessions_dir().join(format!("{safe}.json"))
+}
+
+/// A one-line summary from the first user message, for the session list.
+fn session_title(messages: &serde_json::Value) -> String {
+    messages
+        .as_array()
+        .and_then(|arr| {
+            arr.iter().find(|m| m["role"] == "user").and_then(|m| {
+                m["content"].as_str().map(|s| {
+                    let t: String = s.trim().chars().take(60).collect();
+                    if t.is_empty() { "New conversation".into() } else { t }
+                })
+            })
+        })
+        .unwrap_or_else(|| "New conversation".to_string())
+}
+
+/// List saved sessions (id, title, message_count), newest file first.
+#[tauri::command]
+fn list_sessions() -> Vec<serde_json::Value> {
+    let dir = sessions_dir();
+    let mut entries: Vec<(std::time::SystemTime, serde_json::Value)> = Vec::new();
+    if let Ok(read) = fs::read_dir(&dir) {
+        for e in read.flatten() {
+            let path = e.path();
+            if path.extension().and_then(|x| x.to_str()) != Some("json") {
+                continue;
+            }
+            let id = match path.file_stem().and_then(|s| s.to_str()) {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            let messages: serde_json::Value = fs::read_to_string(&path)
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_else(|| serde_json::json!([]));
+            let count = messages.as_array().map(|a| a.len()).unwrap_or(0);
+            let modified = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            entries.push((
+                modified,
+                serde_json::json!({
+                    "id": id,
+                    "title": session_title(&messages),
+                    "message_count": count,
+                }),
+            ));
+        }
+    }
+    entries.sort_by(|a, b| b.0.cmp(&a.0));
+    entries.into_iter().map(|(_, v)| v).collect()
+}
+
+/// Load a session's messages by id (empty array if missing).
+#[tauri::command]
+fn load_session(id: String) -> serde_json::Value {
+    fs::read_to_string(session_path(&id))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| serde_json::json!([]))
+}
+
+/// Save (create or overwrite) a session's messages by id.
+#[tauri::command]
+fn save_session(id: String, messages: serde_json::Value) -> Result<(), String> {
+    settings::atomic_write(&session_path(&id), &messages.to_string())
+}
+
+/// Delete a session by id (no error if it doesn't exist).
+#[tauri::command]
+fn delete_session(id: String) -> Result<(), String> {
+    let path = session_path(&id);
+    if path.exists() {
+        fs::remove_file(&path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Memory (cross-session)
+// ---------------------------------------------------------------------------
+
+/// Read the curated long-term memory file (`MEMORY.md`).
+#[tauri::command]
+fn get_memory() -> String {
+    memory::get_memory(&config_dir())
+}
+
+/// Overwrite the curated long-term memory file.
+#[tauri::command]
+fn save_memory(content: String) -> Result<(), String> {
+    memory::save_memory(&config_dir(), &content)
+}
+
 fn main() {
     let debug = std::env::args().any(|a| a == "--debug");
     init_logging(debug);
@@ -621,6 +771,12 @@ fn main() {
             list_models,
             load_conversation,
             save_conversation,
+            list_sessions,
+            load_session,
+            save_session,
+            delete_session,
+            get_memory,
+            save_memory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Omni Agent Desktop");

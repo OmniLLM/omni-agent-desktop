@@ -4,6 +4,7 @@ import ChatPane from "./components/ChatPane";
 import Composer from "./components/Composer";
 import ToolApprovalPrompt from "./components/ToolApprovalPrompt";
 import SettingsWindow from "./components/SettingsWindow";
+import SessionBar from "./components/SessionBar";
 import GlobalKeyframes from "./components/GlobalKeyframes";
 import AppShell from "./components/AppShell";
 import { useAgent } from "./hooks/useAgent";
@@ -15,7 +16,18 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [, setSettings] = useState<AppSettings | null>(null);
   const { resolvedTheme, setTheme } = useTheme();
-  const { messages, loading, pendingApproval, send, decide } = useAgent();
+  const {
+    messages,
+    loading,
+    pendingApproval,
+    sessions,
+    currentSessionId,
+    send,
+    decide,
+    newSession,
+    switchSession,
+    deleteSession,
+  } = useAgent();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -72,14 +84,23 @@ export default function App() {
               </div>
             </div>
           ) : null}
-          <div className="agent-main">
-            <div className="chat-scroll" ref={scrollRef}>
-              <ChatPane messages={messages} loading={loading} />
+          <div className="agent-body">
+            <SessionBar
+              sessions={sessions}
+              currentSessionId={currentSessionId}
+              onNew={newSession}
+              onSwitch={switchSession}
+              onDelete={deleteSession}
+            />
+            <div className="agent-main">
+              <div className="chat-scroll" ref={scrollRef}>
+                <ChatPane messages={messages} loading={loading} />
+              </div>
+              {pendingApproval ? (
+                <ToolApprovalPrompt call={pendingApproval} onDecide={decide} />
+              ) : null}
+              <Composer onSend={send} disabled={loading} />
             </div>
-            {pendingApproval ? (
-              <ToolApprovalPrompt call={pendingApproval} onDecide={decide} />
-            ) : null}
-            <Composer onSend={send} disabled={loading} />
           </div>
         </div>
       </AppShell>

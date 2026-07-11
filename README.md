@@ -80,27 +80,48 @@ Provider/model settings should follow OmniPilot concepts so users do not learn a
 
 Server-side A2A registration knobs belong to the upstream agent or hub configuration, not to the thin desktop client, unless explicitly presented as compatibility/admin tooling.
 
-## Develop
+## Development
+
+### Prerequisites
+
+- **Node.js and npm** — for the React/Vite frontend and Tauri CLI.
+- **Rust and Cargo** — for the Tauri desktop shell (`src-tauri`).
+- **GNU Make** — to run the `make` targets below.
+- **Tauri 2 platform prerequisites** — OS-specific system dependencies (e.g. WebKitGTK/GTK on Linux, build tools on macOS/Windows). Follow the official guide: https://v2.tauri.app/start/prerequisites/
+
+### Develop
 
 ```bash
 make install
-make check
 make dev
 ```
 
-Useful Make targets:
+- `make install` — install frontend dependencies with `npm ci`.
+- `make dev` — run the full Tauri dev app (`npm run tauri dev`). This starts the Vite frontend dev server and the desktop shell together, with hot reload across the whole app: frontend (React/Vite) changes refresh instantly, and Rust (`src-tauri`) changes trigger a rebuild and relaunch of the desktop window.
 
-- `make build` — build the release desktop binary with embedded React/Vite assets
-- `make verify-binary` — verify the binary exists and contains embedded frontend HTML
-- `make package` — build platform installers/bundles with Tauri
-- `make dev` — run the full Tauri dev app (Vite + desktop shell)
-- `make dev-web` — run only the Vite frontend dev server
-
-`make build` produces `src-tauri/target/release/omni-agent-desktop`. The frontend is embedded into the Tauri binary by `tauri-build`; no separate `dist/` directory is needed at runtime. On Linux it is still dynamically linked against system WebKitGTK/GTK libraries, which is normal for Tauri apps.
-
-## Test
+### Release
 
 ```bash
-make test
-make check
+make build
+make start
 ```
+
+- `make build` — build the release app with Tauri (`npm run tauri build`).
+- `make start` — launch the built release app (`npm start`).
+
+`make build` produces:
+
+- Platform installers/bundles (`.deb`/`.AppImage`/`.dmg`/`.msi`, etc.) under `src-tauri/target/release/bundle/`.
+- The standalone desktop executable under `src-tauri/target/release/`.
+
+### Validation
+
+```bash
+make check
+make test
+```
+
+- `make check` — type-check/build the frontend (`npm run build`) and run `cargo check` on the Tauri crate.
+- `make test` — run the frontend tests (Vitest) and the Rust tests (`cargo test`).
+- `make clean` — remove build artifacts (`dist/` plus `cargo clean`).
+- `make help` — show the list of supported make targets.

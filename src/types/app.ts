@@ -12,6 +12,13 @@ export interface ChatMessage {
 /** Transitional alias for components still importing the old name. */
 export type ConversationTurn = ChatMessage;
 
+/** Summary of a persisted conversation session, from `list_sessions`. */
+export interface SessionInfo {
+  id: string;
+  title: string;
+  message_count: number;
+}
+
 export interface A2aConnection {
   id: string;
   name: string;

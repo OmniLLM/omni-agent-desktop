@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../lib/runtime";
-import type { ChatMessage, ToolCallEvent } from "../types/app";
+import type { ChatMessage, SessionInfo, ToolCallEvent } from "../types/app";
 
 export interface UseAgentResult {
   messages: ChatMessage[];
   loading: boolean;
   pendingApproval: ToolCallEvent | null;
+  sessions: SessionInfo[];
+  currentSessionId: string | null;
   send: (text: string) => Promise<void>;
   decide: (decision: "approve" | "deny" | "allow_session") => Promise<void>;
+  newSession: () => void;
+  switchSession: (id: string) => Promise<void>;
+  deleteSession: (id: string) => Promise<void>;
 }
 
 interface ToolResultEvent {
@@ -33,32 +38,72 @@ function clampResult(text: string, max = 600): string {
   return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
 }
 
+function newSessionId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `s-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+}
+
+/** Only user/assistant turns form the conversation context sent to the model. */
+function conversationHistory(messages: ChatMessage[]): ChatMessage[] {
+  return messages.filter(
+    (m) => m.role === "user" || m.role === "assistant",
+  );
+}
+
 export function useAgent(): UseAgentResult {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<ToolCallEvent | null>(
     null,
   );
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const cleanupRef = useRef<Array<() => void>>([]);
   const loadedRef = useRef(false);
+  // Snapshot of messages sent with the in-flight run, so history for the model
+  // reflects the conversation up to (and including) the current question.
+  const historyRef = useRef<ChatMessage[]>([]);
 
-  // Load the persisted conversation once on mount.
-  useEffect(() => {
-    invoke<ChatMessage[]>("load_conversation")
-      .then((saved) => {
-        if (Array.isArray(saved) && saved.length) setMessages(saved);
-      })
-      .catch(() => {})
-      .finally(() => {
-        loadedRef.current = true;
-      });
+  const refreshSessions = useCallback(async () => {
+    try {
+      const list = await invoke<SessionInfo[]>("list_sessions");
+      if (Array.isArray(list)) setSessions(list);
+    } catch {
+      // non-fatal
+    }
   }, []);
 
-  // Persist the conversation whenever it changes (after the initial load).
+  // On mount, adopt the most recent session (or start a fresh one).
   useEffect(() => {
-    if (!loadedRef.current) return;
-    invoke("save_conversation", { messages }).catch(() => {});
-  }, [messages]);
+    (async () => {
+      const list = await invoke<SessionInfo[]>("list_sessions").catch(
+        () => [] as SessionInfo[],
+      );
+      setSessions(Array.isArray(list) ? list : []);
+      if (Array.isArray(list) && list.length > 0) {
+        const id = list[0].id;
+        const saved = await invoke<ChatMessage[]>("load_session", { id }).catch(
+          () => [] as ChatMessage[],
+        );
+        setCurrentSessionId(id);
+        if (Array.isArray(saved) && saved.length) setMessages(saved);
+      } else {
+        setCurrentSessionId(newSessionId());
+      }
+      loadedRef.current = true;
+    })();
+  }, []);
+
+  // Persist the active session whenever its messages change.
+  useEffect(() => {
+    if (!loadedRef.current || !currentSessionId) return;
+    if (messages.length === 0) return; // don't write empty sessions
+    invoke("save_session", { id: currentSessionId, messages })
+      .then(() => refreshSessions())
+      .catch(() => {});
+  }, [messages, currentSessionId, refreshSessions]);
 
   useEffect(() => {
     let active = true;
@@ -137,28 +182,32 @@ export function useAgent(): UseAgentResult {
     };
   }, []);
 
-  const send = useCallback(async (text: string) => {
-    if (!text.trim()) return;
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
-    setLoading(true);
-    try {
-      // Always run in "ask" mode: mutating tools always prompt for permission,
-      // so there is no run-mode selector to configure.
-      await invoke("agent_run", { message: text, mode: "ask" });
-    } catch (e) {
-      // The agent loop normally clears `loading` via the agent://done or
-      // agent://error events. If the command itself rejects before emitting,
-      // surface the failure and re-enable the composer so the user isn't stuck.
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `Error: ${e instanceof Error ? e.message : String(e)}`,
-        },
-      ]);
-      setLoading(false);
-    }
-  }, []);
+  const send = useCallback(
+    async (text: string) => {
+      if (!text.trim()) return;
+      // History is the prior conversation, before this new question.
+      const history = conversationHistory(messages);
+      historyRef.current = history;
+      setMessages((prev) => [...prev, { role: "user", content: text }]);
+      setLoading(true);
+      try {
+        // Always run in "ask" mode: mutating local tools prompt for permission.
+        // Pass prior turns so the agent has conversation context (the native
+        // side assembles the context window and injects memory).
+        await invoke("agent_run", { message: text, mode: "ask", history });
+      } catch (e) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+          },
+        ]);
+        setLoading(false);
+      }
+    },
+    [messages],
+  );
 
   const decide = useCallback(
     async (decision: "approve" | "deny" | "allow_session") => {
@@ -169,5 +218,45 @@ export function useAgent(): UseAgentResult {
     [pendingApproval],
   );
 
-  return { messages, loading, pendingApproval, send, decide };
+  const newSession = useCallback(() => {
+    setCurrentSessionId(newSessionId());
+    setMessages([]);
+    setPendingApproval(null);
+    setLoading(false);
+  }, []);
+
+  const switchSession = useCallback(async (id: string) => {
+    const saved = await invoke<ChatMessage[]>("load_session", { id }).catch(
+      () => [] as ChatMessage[],
+    );
+    setCurrentSessionId(id);
+    setMessages(Array.isArray(saved) ? saved : []);
+    setPendingApproval(null);
+    setLoading(false);
+  }, []);
+
+  const deleteSession = useCallback(
+    async (id: string) => {
+      await invoke("delete_session", { id }).catch(() => {});
+      await refreshSessions();
+      if (id === currentSessionId) {
+        setCurrentSessionId(newSessionId());
+        setMessages([]);
+      }
+    },
+    [currentSessionId, refreshSessions],
+  );
+
+  return {
+    messages,
+    loading,
+    pendingApproval,
+    sessions,
+    currentSessionId,
+    send,
+    decide,
+    newSession,
+    switchSession,
+    deleteSession,
+  };
 }

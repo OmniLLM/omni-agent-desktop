@@ -134,6 +134,12 @@ const TAURI_NATIVE_COMMANDS = new Set<string>([
   "list_models",
   "load_conversation",
   "save_conversation",
+  "list_sessions",
+  "load_session",
+  "save_session",
+  "delete_session",
+  "get_memory",
+  "save_memory",
 ]);
 
 function isNativeCommand(cmd: string): boolean {

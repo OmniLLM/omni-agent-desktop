@@ -1,0 +1,53 @@
+<h2>Preferences → AI Provider</h2>
+<p class="subtitle">One active provider, with separate saved configuration for each provider</p>
+
+<div class="mockup">
+  <div class="mockup-header">Omni Agent Desktop · Preferences</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:150px 1fr;gap:22px;min-height:470px">
+      <div style="border-right:1px solid var(--border);padding-right:14px">
+        <div style="padding:9px 10px;border-radius:8px;background:var(--surface-2);font-weight:650">AI Provider</div>
+        <div style="padding:9px 10px;color:var(--muted)">Appearance</div>
+        <div style="padding:9px 10px;color:var(--muted)">General</div>
+        <div style="padding:9px 10px;color:var(--muted)">A2A</div>
+      </div>
+
+      <div>
+        <div class="label">Active provider</div>
+        <select class="mock-input" style="width:100%;margin:6px 0 18px"><option>GitHub Copilot</option></select>
+
+        <div style="border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:18px">
+            <div>
+              <strong>GitHub Copilot account</strong>
+              <div style="color:var(--muted);font-size:13px;margin-top:4px">● Connected as jzhu</div>
+            </div>
+            <button class="mock-button">Sign out</button>
+          </div>
+        </div>
+
+        <div class="label">Model</div>
+        <div style="display:flex;gap:8px;margin:6px 0 18px">
+          <select class="mock-input" style="flex:1"><option>gpt-5.4</option></select>
+          <button class="mock-button">Refresh</button>
+        </div>
+
+        <details style="border-top:1px solid var(--border);padding-top:14px">
+          <summary style="cursor:pointer;font-weight:600">Advanced generation settings</summary>
+          <p style="color:var(--muted);font-size:13px">Timeout, tool iterations, retry policy, and loop detector remain shared settings.</p>
+        </details>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px">
+          <button class="mock-button" style="background:transparent;color:inherit">Cancel</button>
+          <button class="mock-button">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="cards" style="margin-top:18px">
+  <div class="card"><div class="card-body"><h3>Custom Provider</h3><p>Endpoint, API key, API shape, discovered or manual model.</p></div></div>
+  <div class="card"><div class="card-body"><h3>GitHub Copilot</h3><p>Connection status, device-flow sign in/out, discovered model.</p></div></div>
+  <div class="card"><div class="card-body"><h3>Azure Foundry</h3><p>Endpoint, API key, manual deployment/model list and selection.</p></div></div>
+</div>

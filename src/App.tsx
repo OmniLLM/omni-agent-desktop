@@ -48,10 +48,29 @@ export default function App() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const settingsCloseRef = useRef<(() => Promise<void>) | null>(null);
   const showSettingsRef = useRef(false);
+  const projectsLoadedRef = useRef(false);
 
   useEffect(() => {
     showSettingsRef.current = showSettings;
   }, [showSettings]);
+
+  // Load persisted projects once on mount.
+  useEffect(() => {
+    invoke<Project[]>("list_projects")
+      .then((list) => {
+        if (Array.isArray(list)) setProjects(list);
+      })
+      .catch(() => {})
+      .finally(() => {
+        projectsLoadedRef.current = true;
+      });
+  }, []);
+
+  // Persist projects whenever they change (after the initial load).
+  useEffect(() => {
+    if (!projectsLoadedRef.current) return;
+    invoke("save_projects", { projects }).catch(() => {});
+  }, [projects]);
 
   const requestCloseSettings = () => {
     const closer = settingsCloseRef.current;

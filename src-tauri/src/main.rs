@@ -722,6 +722,29 @@ fn delete_session(id: String) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
+// Projects (workspace grouping)
+// ---------------------------------------------------------------------------
+
+fn projects_path() -> PathBuf {
+    config_dir().join("projects.json")
+}
+
+/// List saved projects (array of {id, name}), empty if none exist yet.
+#[tauri::command]
+fn list_projects() -> serde_json::Value {
+    fs::read_to_string(projects_path())
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| serde_json::json!([]))
+}
+
+/// Overwrite the full project list.
+#[tauri::command]
+fn save_projects(projects: serde_json::Value) -> Result<(), String> {
+    settings::atomic_write(&projects_path(), &projects.to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Memory (cross-session)
 // ---------------------------------------------------------------------------
 
@@ -775,6 +798,8 @@ fn main() {
             load_session,
             save_session,
             delete_session,
+            list_projects,
+            save_projects,
             get_memory,
             save_memory,
         ])

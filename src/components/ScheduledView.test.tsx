@@ -303,6 +303,158 @@ describe("ScheduledView", () => {
     expect(within(rowA).queryByText(/Running/i)).toBeNull();
   });
 
+  it("shows a Cancel button on a running row and cancels via cancel_scheduled", async () => {
+    const t = task({ id: "c1", prompt: "Long job", last_status: "Running" });
+    const cancelled = task({
+      id: "c1",
+      prompt: "Long job",
+      last_status: "Cancelled",
+    });
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "list_scheduled") return [t] as unknown;
+      if (cmd === "cancel_scheduled") return cancelled as unknown;
+      return undefined as unknown;
+    });
+    render(<ScheduledView onRun={vi.fn()} />);
+    await screen.findByText("Long job");
+
+    await userEvent.click(screen.getByRole("button", { name: /cancel run/i }));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("cancel_scheduled", { id: "c1" }),
+    );
+    expect(await screen.findByText(/Cancelled/i)).toBeInTheDocument();
+  });
+
+  it("treats the run rejection after a successful cancel as expected", async () => {
+    const t = task({ id: "c2", prompt: "Run then cancel", last_status: "Idle" });
+    let rejectRun: (reason: Error) => void = () => {};
+    const cancelled = task({
+      id: "c2",
+      prompt: "Run then cancel",
+      last_status: "Cancelled",
+    });
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "list_scheduled") return [t] as unknown;
+      if (cmd === "run_scheduled_now")
+        return new Promise((_resolve, reject) => {
+          rejectRun = reject as (reason: Error) => void;
+        }) as unknown;
+      if (cmd === "cancel_scheduled") return cancelled as unknown;
+      return undefined as unknown;
+    });
+    render(<ScheduledView onRun={vi.fn()} />);
+    await screen.findByText("Run then cancel");
+
+    await userEvent.click(screen.getByRole("button", { name: /run now/i }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /cancel run/i }),
+    );
+
+    rejectRun(new Error("run cancelled"));
+    await waitFor(() =>
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByText(/Cancelled/i)).toBeInTheDocument();
+  });
+
+  it("avoids a duplicate cancel while one is already in flight", async () => {
+    const t = task({ id: "c3", prompt: "Double cancel", last_status: "Running" });
+    let resolveCancel: (v: ScheduledTask) => void = () => {};
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "list_scheduled") return [t] as unknown;
+      if (cmd === "cancel_scheduled")
+        return new Promise((res) => {
+          resolveCancel = res as (v: ScheduledTask) => void;
+        }) as unknown;
+      return undefined as unknown;
+    });
+    render(<ScheduledView onRun={vi.fn()} />);
+    await screen.findByText("Double cancel");
+
+    const cancelBtn = screen.getByRole("button", { name: /cancel run/i });
+    await userEvent.click(cancelBtn);
+    // Button is disabled while the cancel is in flight; a second click is a no-op.
+    await waitFor(() => expect(cancelBtn).toBeDisabled());
+    await userEvent.click(cancelBtn);
+
+    const cancelCalls = invokeMock.mock.calls.filter(
+      (c) => c[0] === "cancel_scheduled",
+    ).length;
+    expect(cancelCalls).toBe(1);
+
+    resolveCancel(
+      task({ id: "c3", prompt: "Double cancel", last_status: "Cancelled" }),
+    );
+  });
+
+  it("reconciles a Cancelled status delivered via scheduler://status", async () => {
+    const t = task({ id: "c4", prompt: "Event cancel", last_status: "Running" });
+    mockList([t]);
+    render(<ScheduledView onRun={vi.fn()} />);
+    await screen.findByText("Event cancel");
+    await waitFor(() => expect(statusHandlers.length).toBeGreaterThan(0));
+
+    statusHandlers.forEach((h) =>
+      h({
+        payload: {
+          id: "c4",
+          status: "Cancelled",
+          last_run_at: 1_650_000_000,
+          next_run_at: 1_800_000_000,
+          last_error: null,
+        },
+      }),
+    );
+
+    const row = screen.getByText("Event cancel").closest("li")!;
+    await waitFor(() =>
+      expect(within(row).getByText(/Cancelled/i)).toBeInTheDocument(),
+    );
+    // The Cancel button disappears once the run reaches a terminal state.
+    expect(
+      within(row).queryByRole("button", { name: /cancel run/i }),
+    ).toBeNull();
+  });
+
+  it("surfaces an error and recovers when cancel_scheduled fails", async () => {
+    const t = task({ id: "c5", prompt: "Cancel fails", last_status: "Running" });
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "list_scheduled") return [t] as unknown;
+      if (cmd === "cancel_scheduled") throw new Error("could not persist cancellation");
+      return undefined as unknown;
+    });
+    render(<ScheduledView onRun={vi.fn()} />);
+    await screen.findByText("Cancel fails");
+
+    await userEvent.click(screen.getByRole("button", { name: /cancel run/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/persist/i);
+    // Button recovers (no longer disabled) after the failure.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /cancel run/i }),
+      ).not.toBeDisabled(),
+    );
+  });
+
+  it("ignores cancellation when the run already completed", async () => {
+    const t = task({ id: "c6", prompt: "Already done", last_status: "Running" });
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "list_scheduled") return [t] as unknown;
+      if (cmd === "cancel_scheduled") throw new Error("task is not running");
+      return undefined as unknown;
+    });
+    render(<ScheduledView onRun={vi.fn()} />);
+    await screen.findByText("Already done");
+
+    await userEvent.click(screen.getByRole("button", { name: /cancel run/i }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument(),
+    );
+  });
+
   it("subscribes to scheduler://status once and unlistens on unmount", async () => {
     mockList([task()]);
     const { unmount } = render(<ScheduledView onRun={vi.fn()} />);

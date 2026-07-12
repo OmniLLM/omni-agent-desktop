@@ -4,6 +4,7 @@ import {
   emit as tauriEmit,
 } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow as tauriGetCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { openUrl as tauriOpenUrl } from "@tauri-apps/plugin-opener";
 import { logger, summarizeArgs, type LogLevel } from "./logger";
 
 const isTauriRuntime = () =>
@@ -145,6 +146,7 @@ const TAURI_NATIVE_COMMANDS = new Set<string>([
   "update_scheduled",
   "delete_scheduled",
   "run_scheduled_now",
+  "cancel_scheduled",
   "get_memory",
   "save_memory",
   "start_copilot_device_flow",
@@ -217,6 +219,11 @@ export function getBackendMode(): "tauri" | "http" | "mock" {
 /// the launcher is running in pure-Tauri mode (no HTTP backend configured).
 export function getBackendUrl(): string {
   return backendUrl();
+}
+
+/** Open an external URL with the operating system's default application. */
+export async function openExternalUrl(url: string): Promise<void> {
+  await tauriOpenUrl(url);
 }
 
 type EventHandler<T> = (event: { payload: T }) => void;
@@ -484,6 +491,20 @@ function handleMockScheduler(
       // Only run/status/next timestamps change; prompt/cadence/enabled survive.
       task.last_run_at = now;
       task.last_status = "Succeeded";
+      task.last_error = null;
+      task.next_run_at = now + mockCadenceSecs(task.cadence);
+      task.updated_at = now;
+      return { handled: true, value: { ...task } };
+    }
+    case "cancel_scheduled": {
+      const task = mockScheduledTasks.find((t) => t.id === args?.id);
+      if (!task) throw new Error("task not found");
+      // Deterministic mock: record the terminal Cancelled state, advance
+      // next_run_at, and preserve identity/prompt/cadence. The real backend
+      // additionally rejects cancelling a non-running task; the mock has no
+      // true async Running state, so it does not replicate that gate.
+      task.last_run_at = now;
+      task.last_status = "Cancelled";
       task.last_error = null;
       task.next_run_at = now + mockCadenceSecs(task.cadence);
       task.updated_at = now;

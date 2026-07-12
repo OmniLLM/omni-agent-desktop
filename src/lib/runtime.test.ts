@@ -934,4 +934,30 @@ describe("mock-mode scheduler is stateful and field-preserving", () => {
     const ids = new Set(created.map((t) => t.id));
     expect(ids.size).toBe(3);
   });
+
+  it("cancel_scheduled records Cancelled and preserves prompt/cadence/identity", async () => {
+    const created = await invoke<any>("create_scheduled", {
+      prompt: "Cancel me",
+      cadence: "Hourly",
+      enabled: true,
+    });
+
+    const cancelled = await invoke<any>("cancel_scheduled", { id: created.id });
+    expect(cancelled.last_status).toBe("Cancelled");
+    expect(cancelled.prompt).toBe("Cancel me");
+    expect(cancelled.cadence).toBe("Hourly");
+    expect(cancelled.last_run_at).not.toBeNull();
+    expect(cancelled.next_run_at).toBeGreaterThan(created.created_at);
+    expect(cancelled.id).toBe(created.id);
+    expect(cancelled.created_at).toBe(created.created_at);
+
+    const list = await invoke<any[]>("list_scheduled");
+    expect(list[0].last_status).toBe("Cancelled");
+  });
+
+  it("cancel_scheduled rejects an unknown task id", async () => {
+    await expect(
+      invoke("cancel_scheduled", { id: "does-not-exist" }),
+    ).rejects.toThrow(/not found/i);
+  });
 });

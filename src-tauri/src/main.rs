@@ -10,7 +10,12 @@ use base64::Engine;
 use settings::AppSettings;
 use simplelog::{ColorChoice, ConfigBuilder, LevelFilter, TermLogger, TerminalMode, WriteLogger};
 use std::collections::HashMap;
-use std::{fs, io::Read, path::PathBuf, sync::{Arc, Mutex}};
+use std::{
+    fs,
+    io::Read,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, State};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tokio::sync::oneshot;
@@ -113,19 +118,43 @@ fn parse_key_code(token: &str) -> Option<Code> {
     if t.len() == 1 {
         let c = t.chars().next()?.to_ascii_uppercase();
         return match c {
-            'A' => Some(Code::KeyA), 'B' => Some(Code::KeyB), 'C' => Some(Code::KeyC),
-            'D' => Some(Code::KeyD), 'E' => Some(Code::KeyE), 'F' => Some(Code::KeyF),
-            'G' => Some(Code::KeyG), 'H' => Some(Code::KeyH), 'I' => Some(Code::KeyI),
-            'J' => Some(Code::KeyJ), 'K' => Some(Code::KeyK), 'L' => Some(Code::KeyL),
-            'M' => Some(Code::KeyM), 'N' => Some(Code::KeyN), 'O' => Some(Code::KeyO),
-            'P' => Some(Code::KeyP), 'Q' => Some(Code::KeyQ), 'R' => Some(Code::KeyR),
-            'S' => Some(Code::KeyS), 'T' => Some(Code::KeyT), 'U' => Some(Code::KeyU),
-            'V' => Some(Code::KeyV), 'W' => Some(Code::KeyW), 'X' => Some(Code::KeyX),
-            'Y' => Some(Code::KeyY), 'Z' => Some(Code::KeyZ),
-            '0' => Some(Code::Digit0), '1' => Some(Code::Digit1), '2' => Some(Code::Digit2),
-            '3' => Some(Code::Digit3), '4' => Some(Code::Digit4), '5' => Some(Code::Digit5),
-            '6' => Some(Code::Digit6), '7' => Some(Code::Digit7), '8' => Some(Code::Digit8),
-            '9' => Some(Code::Digit9), _ => None,
+            'A' => Some(Code::KeyA),
+            'B' => Some(Code::KeyB),
+            'C' => Some(Code::KeyC),
+            'D' => Some(Code::KeyD),
+            'E' => Some(Code::KeyE),
+            'F' => Some(Code::KeyF),
+            'G' => Some(Code::KeyG),
+            'H' => Some(Code::KeyH),
+            'I' => Some(Code::KeyI),
+            'J' => Some(Code::KeyJ),
+            'K' => Some(Code::KeyK),
+            'L' => Some(Code::KeyL),
+            'M' => Some(Code::KeyM),
+            'N' => Some(Code::KeyN),
+            'O' => Some(Code::KeyO),
+            'P' => Some(Code::KeyP),
+            'Q' => Some(Code::KeyQ),
+            'R' => Some(Code::KeyR),
+            'S' => Some(Code::KeyS),
+            'T' => Some(Code::KeyT),
+            'U' => Some(Code::KeyU),
+            'V' => Some(Code::KeyV),
+            'W' => Some(Code::KeyW),
+            'X' => Some(Code::KeyX),
+            'Y' => Some(Code::KeyY),
+            'Z' => Some(Code::KeyZ),
+            '0' => Some(Code::Digit0),
+            '1' => Some(Code::Digit1),
+            '2' => Some(Code::Digit2),
+            '3' => Some(Code::Digit3),
+            '4' => Some(Code::Digit4),
+            '5' => Some(Code::Digit5),
+            '6' => Some(Code::Digit6),
+            '7' => Some(Code::Digit7),
+            '8' => Some(Code::Digit8),
+            '9' => Some(Code::Digit9),
+            _ => None,
         };
     }
     match t.to_ascii_lowercase().as_str() {
@@ -134,25 +163,39 @@ fn parse_key_code(token: &str) -> Option<Code> {
         "escape" | "esc" => Some(Code::Escape),
         "tab" => Some(Code::Tab),
         "backspace" => Some(Code::Backspace),
-        "f1" => Some(Code::F1), "f2" => Some(Code::F2), "f3" => Some(Code::F3),
-        "f4" => Some(Code::F4), "f5" => Some(Code::F5), "f6" => Some(Code::F6),
-        "f7" => Some(Code::F7), "f8" => Some(Code::F8), "f9" => Some(Code::F9),
-        "f10" => Some(Code::F10), "f11" => Some(Code::F11), "f12" => Some(Code::F12),
+        "f1" => Some(Code::F1),
+        "f2" => Some(Code::F2),
+        "f3" => Some(Code::F3),
+        "f4" => Some(Code::F4),
+        "f5" => Some(Code::F5),
+        "f6" => Some(Code::F6),
+        "f7" => Some(Code::F7),
+        "f8" => Some(Code::F8),
+        "f9" => Some(Code::F9),
+        "f10" => Some(Code::F10),
+        "f11" => Some(Code::F11),
+        "f12" => Some(Code::F12),
         _ => None,
     }
 }
 
-fn register_shortcut(app: &tauri::AppHandle, slot: &ShortcutSlot, shortcut: Shortcut) -> Result<(), String> {
+fn register_shortcut(
+    app: &tauri::AppHandle,
+    slot: &ShortcutSlot,
+    shortcut: Shortcut,
+) -> Result<(), String> {
     if let Some(previous) = *slot.0.lock().map_err(|e| e.to_string())? {
         let _ = app.global_shortcut().unregister(previous);
     }
 
-    let window = app.get_webview_window("main").ok_or_else(|| "main window not found".to_string())?;
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
     app.global_shortcut()
         .on_shortcut(shortcut, move |_app, _shortcut, event| {
             if let ShortcutState::Pressed = event.state() {
-                let visible = window.is_visible().unwrap_or(false)
-                    && !window.is_minimized().unwrap_or(false);
+                let visible =
+                    window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false);
                 if visible {
                     let _ = window.hide();
                 } else {
@@ -208,8 +251,13 @@ fn save_settings_cmd(settings: AppSettings) -> Result<AppSettings, String> {
 }
 
 #[tauri::command]
-fn set_hotkey_cmd(app: tauri::AppHandle, slot: State<'_, ShortcutSlot>, settings: AppSettings) -> Result<AppSettings, String> {
-    let shortcut = parse_shortcut(&settings.hotkey).ok_or_else(|| format!("Invalid hotkey: {}", settings.hotkey))?;
+fn set_hotkey_cmd(
+    app: tauri::AppHandle,
+    slot: State<'_, ShortcutSlot>,
+    settings: AppSettings,
+) -> Result<AppSettings, String> {
+    let shortcut = parse_shortcut(&settings.hotkey)
+        .ok_or_else(|| format!("Invalid hotkey: {}", settings.hotkey))?;
     register_shortcut(&app, &slot, shortcut)?;
     let store = secrets::KeyringSecretStore::new();
     let connected = copilot_connected(&store);
@@ -245,9 +293,18 @@ async fn set_window_geometry(
     ai_mode: bool,
     panel_mode: Option<bool>,
 ) -> Result<bool, String> {
-    let width = if ai_mode { 920.0 } else if panel_mode.unwrap_or(false) { 760.0 } else { 640.0 };
+    let width = if ai_mode {
+        920.0
+    } else if panel_mode.unwrap_or(false) {
+        760.0
+    } else {
+        640.0
+    };
     window
-        .set_size(tauri::Size::Physical(PhysicalSize::new(width as u32, height.max(56.0) as u32)))
+        .set_size(tauri::Size::Physical(PhysicalSize::new(
+            width as u32,
+            height.max(56.0) as u32,
+        )))
         .map_err(|e| e.to_string())?;
     Ok(true)
 }
@@ -259,7 +316,10 @@ async fn set_window_size_centered(
     height: f64,
 ) -> Result<bool, String> {
     window
-        .set_size(tauri::Size::Physical(PhysicalSize::new(width as u32, height as u32)))
+        .set_size(tauri::Size::Physical(PhysicalSize::new(
+            width as u32,
+            height as u32,
+        )))
         .map_err(|e| e.to_string())?;
     if let Some(monitor) = window.current_monitor().map_err(|e| e.to_string())? {
         let size = monitor.size();
@@ -314,7 +374,8 @@ $img.Save('{}');"#,
         }
     }
 
-    let mut file = fs::File::open(&tmp_path).map_err(|e| format!("Failed to open screenshot: {e}"))?;
+    let mut file =
+        fs::File::open(&tmp_path).map_err(|e| format!("Failed to open screenshot: {e}"))?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)
         .map_err(|e| format!("Failed to read screenshot: {e}"))?;
@@ -378,9 +439,7 @@ async fn start_copilot_device_flow(
 
 /// Return the current public Copilot auth status (never a token).
 #[tauri::command]
-fn get_copilot_auth_status(
-    copilot: State<'_, CopilotState>,
-) -> agent::copilot::CopilotAuthStatus {
+fn get_copilot_auth_status(copilot: State<'_, CopilotState>) -> agent::copilot::CopilotAuthStatus {
     copilot.0.status()
 }
 
@@ -451,13 +510,11 @@ async fn approve_tool(
     Ok(())
 }
 
-/// Build the shared HTTP client. Proxy support is disabled: providers and A2A
-/// endpoints are typically local (localhost/127.0.0.1) and must not be routed
-/// through a corporate proxy, which is the usual cause of an opaque reqwest
-/// "builder error" when HTTP(S)_PROXY is set in the environment.
+/// Build the shared HTTP client. Reqwest's default system proxy support is
+/// intentional: public providers such as GitHub Copilot must traverse corporate
+/// HTTP(S) proxies. `NO_PROXY` keeps local providers and A2A endpoints direct.
 fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
-        .no_proxy()
         // Bound every single request so a slow/dead provider or A2A hub can't
         // hang the agent loop indefinitely (the UI would sit on "Thinking…").
         .timeout(std::time::Duration::from_secs(120))
@@ -544,8 +601,14 @@ impl<'a> agent::RunBackend for ForegroundBackend<'a> {
                 )
                 .await
             } else {
-                call_provider(&self.client, &self.config, &self.system, messages, &self.tool_defs)
-                    .await
+                call_provider(
+                    &self.client,
+                    &self.config,
+                    &self.system,
+                    messages,
+                    &self.tool_defs,
+                )
+                .await
             }
         })
     }
@@ -661,7 +724,8 @@ async fn prepare_run(
         }
     }
 
-    let base_prompt = "You are Omni Agent, a helpful desktop AI agent with local tools and A2A skills.\n\
+    let base_prompt =
+        "You are Omni Agent, a helpful desktop AI agent with local tools and A2A skills.\n\
         Always format your final answer as clean, well-structured Markdown:\n\
         - Use headings, bold for key figures, and bullet lists for related items.\n\
         - Present tabular or multi-field data as a Markdown table.\n\
@@ -803,7 +867,11 @@ async fn test_azure_connection(
     // in the draft, otherwise use the separate argument. Never log either.
     let mut config = draft;
     let typed = config.api_key.trim().to_string();
-    let key = if !typed.is_empty() { typed } else { api_key.trim().to_string() };
+    let key = if !typed.is_empty() {
+        typed
+    } else {
+        api_key.trim().to_string()
+    };
     config.api_key = key;
     config.api_key_stored = false;
 
@@ -931,7 +999,11 @@ fn session_title(messages: &serde_json::Value) -> String {
             arr.iter().find(|m| m["role"] == "user").and_then(|m| {
                 m["content"].as_str().map(|s| {
                     let t: String = s.trim().chars().take(60).collect();
-                    if t.is_empty() { "New conversation".into() } else { t }
+                    if t.is_empty() {
+                        "New conversation".into()
+                    } else {
+                        t
+                    }
                 })
             })
         })
@@ -1087,8 +1159,14 @@ impl agent::RunBackend for HeadlessBackend {
                 )
                 .await
             } else {
-                call_provider(&self.client, &self.config, &self.system, messages, &self.tool_defs)
-                    .await
+                call_provider(
+                    &self.client,
+                    &self.config,
+                    &self.system,
+                    messages,
+                    &self.tool_defs,
+                )
+                .await
             }
         })
     }
@@ -1242,6 +1320,17 @@ async fn run_scheduled_now(
     sched.0.run_now(&id).await
 }
 
+/// Cancel the in-flight run of a scheduled task. Records a terminal `Cancelled`
+/// status, advances the task to its next future run, persists, and emits a
+/// status event. Rejected if no run is currently in flight for the task.
+#[tauri::command]
+fn cancel_scheduled(
+    sched: State<'_, SchedulerState>,
+    id: String,
+) -> Result<scheduler::ScheduledTask, String> {
+    sched.0.cancel(&id)
+}
+
 // ---------------------------------------------------------------------------
 // Memory (cross-session)
 // ---------------------------------------------------------------------------
@@ -1268,6 +1357,7 @@ fn main() {
     let copilot_auth = build_copilot_auth();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(shortcut_slot.clone())
         .manage(ApprovalRegistry::default())
@@ -1276,8 +1366,9 @@ fn main() {
             let window = app.get_webview_window("main").expect("main window");
             window.center().ok();
 
-            let shortcut = parse_shortcut(&settings.hotkey)
-                .unwrap_or_else(|| Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO));
+            let shortcut = parse_shortcut(&settings.hotkey).unwrap_or_else(|| {
+                Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO)
+            });
             register_shortcut(&app.handle().clone(), &shortcut_slot, shortcut)?;
 
             // Build and start the persistent scheduler. It keeps running while the
@@ -1321,6 +1412,7 @@ fn main() {
             update_scheduled,
             delete_scheduled,
             run_scheduled_now,
+            cancel_scheduled,
             start_copilot_device_flow,
             get_copilot_auth_status,
             cancel_copilot_device_flow,

@@ -24,6 +24,11 @@ function errorMessage(e: unknown): string {
   return "Something went wrong";
 }
 
+function isExpectedCancellationRace(e: unknown): boolean {
+  const message = errorMessage(e).toLowerCase();
+  return message === "run cancelled" || message === "task is not running";
+}
+
 export default function ScheduledView(_props: {
   onRun?: (prompt: string) => void;
 }) {
@@ -32,6 +37,7 @@ export default function ScheduledView(_props: {
   const [cadence, setCadence] = useState<Cadence>("Daily");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [running, setRunning] = useState<Set<string>>(new Set());
+  const [cancelling, setCancelling] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -170,9 +176,33 @@ export default function ScheduledView(_props: {
       });
       reconcile(updated);
     } catch (e) {
-      setError(errorMessage(e));
+      if (!isExpectedCancellationRace(e)) setError(errorMessage(e));
     } finally {
       setRunning((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
+    }
+  };
+
+  // Cancel an in-flight run. Guard against a duplicate cancel while one is
+  // already in flight for this task. The authoritative task returned by
+  // `cancel_scheduled` (and the matching `scheduler://status` event) reconciles
+  // the row to its terminal Cancelled state.
+  const cancelRun = async (task: ScheduledTask) => {
+    if (cancelling.has(task.id)) return;
+    setError(null);
+    setCancelling((prev) => new Set(prev).add(task.id));
+    try {
+      const updated = await invoke<ScheduledTask>("cancel_scheduled", {
+        id: task.id,
+      });
+      reconcile(updated);
+    } catch (e) {
+      if (!isExpectedCancellationRace(e)) setError(errorMessage(e));
+    } finally {
+      setCancelling((prev) => {
         const next = new Set(prev);
         next.delete(task.id);
         return next;
@@ -242,6 +272,11 @@ export default function ScheduledView(_props: {
         <ul className="panel-view__list">
           {tasks.map((task) => {
             const isRunning = running.has(task.id);
+            const isCancelling = cancelling.has(task.id);
+            // A row is cancellable while a run is in flight — either the
+            // optimistic local run-now or an authoritative Running status from
+            // a scheduler-triggered run.
+            const showCancel = isRunning || task.last_status === "Running";
             return (
               <li key={task.id} className="panel-view__row">
                 <div className="panel-view__row-main">
@@ -280,6 +315,17 @@ export default function ScheduledView(_props: {
                 >
                   {isRunning ? "Running…" : "Run now"}
                 </button>
+                {showCancel ? (
+                  <button
+                    type="button"
+                    className="panel-view__btn panel-view__btn--ghost"
+                    aria-label="Cancel run"
+                    onClick={() => void cancelRun(task)}
+                    disabled={isCancelling}
+                  >
+                    {isCancelling ? "Cancelling…" : "Cancel"}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="panel-view__btn panel-view__btn--ghost"

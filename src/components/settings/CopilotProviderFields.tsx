@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "../../lib/runtime";
+import { invoke, openExternalUrl } from "../../lib/runtime";
 import type {
   CopilotAuthStatus,
   CopilotModel,
@@ -18,6 +18,23 @@ interface Props {
 
 /** How often (ms) to poll auth status while a device flow is pending. */
 const POLL_INTERVAL_MS = 2500;
+const MANUAL_HANDOFF_MESSAGE = "Open the GitHub link shown below";
+
+const describeError = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
+export function isSafeCopilotVerificationUri(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "github.com" &&
+      url.pathname === "/login/device"
+    );
+  } catch {
+    return false;
+  }
+}
 
 function stateLabel(status: CopilotAuthStatus): string {
   switch (status.state) {
@@ -57,8 +74,13 @@ export default function CopilotProviderFields({
   const [token, setToken] = useState("");
   const [models, setModels] = useState<CopilotModel[]>([]);
   const [busy, setBusy] = useState(false);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [handoffStatus, setHandoffStatus] = useState("");
   const mountedRef = useRef(true);
+  const statusRequestRef = useRef(0);
+  const deviceFlowStartedRef = useRef(false);
+  const discoveryGenRef = useRef(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = () => {
@@ -68,16 +90,26 @@ export default function CopilotProviderFields({
     }
   };
 
-  // Initial status read.
+  // Initial status read. Ignore a stale response if the user starts a new flow
+  // before it resolves.
   useEffect(() => {
     mountedRef.current = true;
+    const request = ++statusRequestRef.current;
     invoke<CopilotAuthStatus>("get_copilot_auth_status")
       .then((s) => {
-        if (mountedRef.current) setStatus(s);
+        if (
+          mountedRef.current &&
+          request === statusRequestRef.current &&
+          !deviceFlowStartedRef.current
+        ) {
+          setStatus(s);
+        }
       })
       .catch(() => {});
     return () => {
       mountedRef.current = false;
+      statusRequestRef.current += 1;
+      discoveryGenRef.current += 1;
       stopPolling();
     };
   }, []);
@@ -90,23 +122,66 @@ export default function CopilotProviderFields({
     }
     if (pollRef.current !== null) return;
     pollRef.current = setInterval(() => {
+      const request = ++statusRequestRef.current;
       invoke<CopilotAuthStatus>("get_copilot_auth_status")
         .then((s) => {
-          if (mountedRef.current) setStatus(s);
+          if (
+            mountedRef.current &&
+            request === statusRequestRef.current
+          ) {
+            setStatus(s);
+          }
         })
         .catch(() => {});
     }, POLL_INTERVAL_MS);
     return stopPolling;
   }, [status.state]);
 
+  const copyDeviceCode = async (userCode: string) => {
+    try {
+      await navigator.clipboard.writeText(userCode);
+      if (mountedRef.current) setHandoffStatus("Device code copied");
+    } catch {
+      if (mountedRef.current) setHandoffStatus("Copy the device code shown below");
+    }
+  };
+
+  const openVerificationPage = async (verificationUri: string) => {
+    if (!isSafeCopilotVerificationUri(verificationUri)) {
+      if (mountedRef.current) setHandoffStatus(MANUAL_HANDOFF_MESSAGE);
+      return;
+    }
+    try {
+      await openExternalUrl(verificationUri);
+    } catch {
+      if (mountedRef.current) setHandoffStatus(MANUAL_HANDOFF_MESSAGE);
+    }
+  };
+
+  const handOffDeviceFlow = async (
+    userCode: string,
+    verificationUri: string,
+  ) => {
+    await Promise.allSettled([
+      copyDeviceCode(userCode),
+      openVerificationPage(verificationUri),
+    ]);
+  };
+
   const startDeviceFlow = async () => {
     setBusy(true);
     setError("");
+    setHandoffStatus("");
+    deviceFlowStartedRef.current = true;
+    statusRequestRef.current += 1;
     try {
       const s = await invoke<CopilotAuthStatus>("start_copilot_device_flow");
       if (mountedRef.current) setStatus(s);
+      if (s.state === "awaiting_user") {
+        await handOffDeviceFlow(s.user_code, s.verification_uri);
+      }
     } catch (e) {
-      if (mountedRef.current) setError(e instanceof Error ? e.message : String(e));
+      if (mountedRef.current) setError(describeError(e));
     } finally {
       if (mountedRef.current) setBusy(false);
     }
@@ -114,6 +189,8 @@ export default function CopilotProviderFields({
 
   const cancelFlow = async () => {
     stopPolling();
+    statusRequestRef.current += 1;
+    deviceFlowStartedRef.current = false;
     try {
       await invoke("cancel_copilot_device_flow");
     } catch {
@@ -135,7 +212,7 @@ export default function CopilotProviderFields({
         setToken("");
       }
     } catch (e) {
-      if (mountedRef.current) setError(e instanceof Error ? e.message : String(e));
+      if (mountedRef.current) setError(describeError(e));
     } finally {
       if (mountedRef.current) setBusy(false);
     }
@@ -143,6 +220,10 @@ export default function CopilotProviderFields({
 
   const disconnect = async () => {
     stopPolling();
+    statusRequestRef.current += 1;
+    deviceFlowStartedRef.current = false;
+    discoveryGenRef.current += 1;
+    setModelsLoading(false);
     try {
       await invoke("disconnect_copilot");
     } catch {
@@ -154,20 +235,37 @@ export default function CopilotProviderFields({
     }
   };
 
-  const discoverModels = async () => {
-    setBusy(true);
+  const refreshModels = async () => {
+    const generation = ++discoveryGenRef.current;
+    setModelsLoading(true);
     setError("");
     try {
-      const list = await invoke<CopilotModel[]>("list_copilot_models");
-      if (mountedRef.current) setModels(list);
+      const result = await invoke<CopilotModel[]>("list_copilot_models");
+      const list = Array.isArray(result) ? result : [];
+      if (mountedRef.current && generation === discoveryGenRef.current) {
+        setModels(list);
+      }
     } catch (e) {
-      if (mountedRef.current) setError(e instanceof Error ? e.message : String(e));
+      if (mountedRef.current && generation === discoveryGenRef.current) {
+        setError(describeError(e));
+      }
     } finally {
-      if (mountedRef.current) setBusy(false);
+      if (mountedRef.current && generation === discoveryGenRef.current) {
+        setModelsLoading(false);
+      }
     }
   };
 
   const connected = status.state === "connected";
+
+  useEffect(() => {
+    if (connected) {
+      void refreshModels();
+    } else {
+      discoveryGenRef.current += 1;
+      setModelsLoading(false);
+    }
+  }, [connected]);
 
   // Surface connection changes to the parent for save-time activation gating.
   useEffect(() => {
@@ -205,22 +303,47 @@ export default function CopilotProviderFields({
             </div>
             <div style={{ fontSize: 13, marginTop: 4 }}>
               Enter it at{" "}
-              <a
-                href={status.verification_uri}
-                target="_blank"
-                rel="noreferrer noopener"
-              >
-                {status.verification_uri}
-              </a>
+              {isSafeCopilotVerificationUri(status.verification_uri) ? (
+                <a
+                  href={status.verification_uri}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  {status.verification_uri}
+                </a>
+              ) : (
+                <span>{status.verification_uri}</span>
+              )}
             </div>
-            <button
-              type="button"
-              className="omni-btn"
-              style={{ marginTop: 8 }}
-              onClick={cancelFlow}
-            >
-              Cancel
-            </button>
+            {handoffStatus && (
+              <div role="status" aria-live="polite" style={{ fontSize: 13, marginTop: 6 }}>
+                {handoffStatus}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button
+                type="button"
+                className="omni-btn"
+                onClick={() => copyDeviceCode(status.user_code)}
+              >
+                Copy code
+              </button>
+              <button
+                type="button"
+                className="omni-btn"
+                onClick={() => openVerificationPage(status.verification_uri)}
+                disabled={!isSafeCopilotVerificationUri(status.verification_uri)}
+              >
+                Open GitHub
+              </button>
+              <button
+                type="button"
+                className="omni-btn"
+                onClick={cancelFlow}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -269,34 +392,36 @@ export default function CopilotProviderFields({
       {connected && (
         <>
           <div style={rowStyle()}>
-            <span style={rowLabelStyle}>Models</span>
-            <div>
-              <button
-                type="button"
-                className="omni-btn"
-                onClick={discoverModels}
-                disabled={busy}
-              >
-                Discover models
-              </button>
-              {models.length > 0 && (
-                <div className="settings-popover" style={{ position: "static", marginTop: 8 }}>
-                  {models.map((m) => {
-                    const isSel = m.id === draft.model;
-                    return (
-                      <div
-                        key={m.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => update({ model: m.id })}
-                        className={`settings-popover__item${isSel ? " settings-popover__item--active" : ""}`}
-                      >
-                        {m.id}
-                      </div>
-                    );
-                  })}
-                </div>
+            <label style={rowLabelStyle} htmlFor="copilot-model">
+              Model
+              {modelsLoading && (
+                <span style={{ color: "var(--accent)" }}> (loading…)</span>
               )}
+            </label>
+            <div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  id="copilot-model"
+                  className="omni-input"
+                  list="copilot-model-list"
+                  value={draft.model}
+                  onChange={(event) => update({ model: event.target.value })}
+                  placeholder="Type or pick a model…"
+                />
+                <button
+                  type="button"
+                  className="omni-btn"
+                  onClick={refreshModels}
+                  disabled={modelsLoading}
+                >
+                  Refresh models
+                </button>
+              </div>
+              <datalist id="copilot-model-list">
+                {models.map((model) => (
+                  <option key={model.id} value={model.id} />
+                ))}
+              </datalist>
             </div>
           </div>
           <div style={rowStyle(true)}>

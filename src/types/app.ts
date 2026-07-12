@@ -40,7 +40,12 @@ export type Cadence = "Hourly" | "Daily" | "Weekly";
 
 /** The outcome of the most recent run for a scheduled task. Mirrors the Rust
  * `RunStatus` enum. */
-export type RunStatus = "Idle" | "Running" | "Succeeded" | "Failed";
+export type RunStatus =
+  | "Idle"
+  | "Running"
+  | "Succeeded"
+  | "Failed"
+  | "Cancelled";
 
 /** A persisted scheduled task, mirroring the Rust `ScheduledTask`. All
  * timestamps are Unix seconds. */

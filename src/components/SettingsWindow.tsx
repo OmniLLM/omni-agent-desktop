@@ -73,6 +73,7 @@ function emptyProviderConfig(): ProviderConfig {
 
 type TabId = (typeof TABS)[number]["id"];
 type SaveStatus = "idle" | "success" | "error";
+const SAVE_STATUS_DURATION_MS = 3000;
 
 const MODIFIER_KEYS = new Set([
   "Alt",
@@ -197,12 +198,22 @@ export default function SettingsWindow({
   /** The background URL that is currently persisted on disk. Used to restore
    *  the host's live preview when the user cancels or a save fails. */
   const savedBackgroundRef = useRef<string>("");
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   /** Monotonic token for custom model discovery. Incremented on every new
    * discovery AND on provider switch/unmount, so a slow in-flight result that
    * resolves after the user has moved on is dropped instead of landing stale. */
   const discoveryGenRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      if (saveStatusTimerRef.current !== null) {
+        clearTimeout(saveStatusTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -344,6 +355,10 @@ export default function SettingsWindow({
       return;
     }
     setProviderError("");
+    if (saveStatusTimerRef.current !== null) {
+      clearTimeout(saveStatusTimerRef.current);
+      saveStatusTimerRef.current = null;
+    }
     setSaveStatus("idle");
     // Provider configs are authoritative. Fold the current per-provider drafts
     // and the active-provider selection into the settings payload. Do NOT author
@@ -363,7 +378,10 @@ export default function SettingsWindow({
       savedWindowSizeRef.current = normalizeWindowSize(settings.window_size);
       savedBackgroundRef.current = settings.background_url ?? "";
       setSaveStatus("success");
-      setTimeout(() => setSaveStatus("idle"), 2000);
+      saveStatusTimerRef.current = setTimeout(() => {
+        setSaveStatus("idle");
+        saveStatusTimerRef.current = null;
+      }, SAVE_STATUS_DURATION_MS);
       emit("omnilauncher://settings-saved", settingsToSave).catch(() => {});
     } catch (e) {
       console.error("Save error:", e);
@@ -1229,10 +1247,16 @@ export default function SettingsWindow({
             }}
           >
             {saveStatus === "success" && (
-              <span className="omni-status omni-status--success">✓ Saved</span>
+              <span
+                role="status"
+                aria-live="polite"
+                className="omni-status omni-status--success"
+              >
+                ✓ Saved
+              </span>
             )}
             {saveStatus === "error" && (
-              <span className="omni-status omni-status--error">
+              <span role="alert" className="omni-status omni-status--error">
                 ✗ Save failed
               </span>
             )}

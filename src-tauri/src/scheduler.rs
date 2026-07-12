@@ -10,9 +10,10 @@
 
 use crate::agent::BoxFut;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use tokio::sync::watch;
 
 // ---------------------------------------------------------------------------
 // Typed model
@@ -51,6 +52,7 @@ pub enum RunStatus {
     Running,
     Succeeded,
     Failed,
+    Cancelled,
 }
 
 impl Default for RunStatus {
@@ -121,7 +123,14 @@ pub fn sanitize_error(raw: &str) -> String {
     // leaked `Bearer sk-...` or `api-key: ...` never reaches storage.
     let lower = first.to_ascii_lowercase();
     let mut cut = first.len();
-    for marker in ["bearer ", "authorization", "api-key", "api_key", "token", "key="] {
+    for marker in [
+        "bearer ",
+        "authorization",
+        "api-key",
+        "api_key",
+        "token",
+        "key=",
+    ] {
         if let Some(pos) = lower.find(marker) {
             cut = cut.min(pos);
         }
@@ -145,7 +154,10 @@ fn redact_long_tokens(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut run = String::new();
     let flush = |run: &mut String, out: &mut String| {
-        if run.len() >= 20 && run.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        if run.len() >= 20
+            && run
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
         {
             out.push_str("[redacted]");
         } else {
@@ -243,6 +255,14 @@ pub enum Trigger {
     Manual,
 }
 
+/// How a single [`Scheduler::execute`] run resolved: the runner produced a
+/// result, or a concurrent [`Scheduler::cancel`] signalled the run to stop
+/// before the runner finished.
+enum RunOutcome {
+    Ran(Result<String, String>),
+    Cancelled,
+}
+
 // ---------------------------------------------------------------------------
 // Deserialization / migration
 // ---------------------------------------------------------------------------
@@ -264,7 +284,14 @@ pub fn parse_tasks(raw: &str, now: u64) -> Vec<ScheduledTask> {
 
 struct Inner {
     tasks: Vec<ScheduledTask>,
-    running: HashSet<String>,
+    /// Live per-task cancellation channels. An entry exists for exactly the
+    /// duration of an in-flight run and doubles as the run guard: presence of a
+    /// key means a run is currently in flight for that task id, and sending
+    /// `true` on the paired [`watch::Sender`] asks that run to stop racing. The
+    /// entry is removed by whichever of `execute`/`cancel` records the run's
+    /// terminal state, and that removal (performed under the `Mutex`) is the sole
+    /// arbiter deciding which of them owns the record.
+    cancels: HashMap<String, watch::Sender<bool>>,
 }
 
 /// The deterministic scheduler core. Holds the task list behind a `Mutex` that
@@ -307,7 +334,7 @@ impl Scheduler {
         Arc::new(Self {
             inner: Mutex::new(Inner {
                 tasks,
-                running: HashSet::new(),
+                cancels: HashMap::new(),
             }),
             generation: AtomicU64::new(1),
             clock,
@@ -338,7 +365,7 @@ impl Scheduler {
     /// Whether a run is currently in flight for `id` (per-task guard state).
     /// Exposed for tests and health checks.
     pub fn is_running(&self, id: &str) -> bool {
-        self.inner.lock().unwrap().running.contains(id)
+        self.inner.lock().unwrap().cancels.contains_key(id)
     }
 
     /// Persist the current in-memory task list, reverting to `snapshot` if the
@@ -490,6 +517,60 @@ impl Scheduler {
         self.execute(id, Trigger::Manual).await
     }
 
+    /// Cancel the in-flight run of `id`. Fails if no run is currently in flight.
+    ///
+    /// Cancellation records a terminal [`RunStatus::Cancelled`] outcome, advances
+    /// the task to its next future run (so the cadence keeps ticking cleanly),
+    /// persists atomically, and emits a status event — mirroring a normal
+    /// completion. Removing the task's cancel guard under the lock is the sole
+    /// arbiter: if the run happened to finish first, its `execute` already
+    /// removed the guard and this returns `"task is not running"`; otherwise this
+    /// wins, records `Cancelled`, and the racing `execute` observes the missing
+    /// guard and discards its own (now stale) result. The in-flight runner future
+    /// is signalled to stop, but the abort is best-effort — a runner already
+    /// blocked in provider I/O is dropped rather than forcibly interrupted.
+    pub fn cancel(&self, id: &str) -> Result<ScheduledTask, String> {
+        let recorded = {
+            let mut inner = self.inner.lock().unwrap();
+            // The cancel guard IS the run guard: no entry means no in-flight run.
+            let tx = match inner.cancels.remove(id) {
+                Some(tx) => tx,
+                None => return Err("task is not running".into()),
+            };
+            // Ask the racing run to stop; best-effort, ignored if it already ended.
+            let _ = tx.send(true);
+            // Snapshot to revert to if the completion write fails. This carries
+            // the transient `Running` status, but the guard has already been
+            // removed, so a startup reset (Running -> Idle) recovers it on the
+            // next launch if persistence fails here.
+            let snapshot = inner.tasks.clone();
+            let now = self.clock.now();
+            let out = if let Some(t) = inner.tasks.iter_mut().find(|t| t.id == id) {
+                let interval = t.cadence.interval_secs();
+                t.last_status = RunStatus::Cancelled;
+                t.last_error = None;
+                t.last_run_at = Some(now);
+                t.next_run_at = next_after(t.next_run_at, now, interval);
+                t.updated_at = now;
+                Some(t.clone())
+            } else {
+                // Task was deleted mid-run; nothing to record.
+                None
+            };
+            if out.is_some() {
+                self.persist_or_revert(&mut inner, snapshot)?;
+            }
+            out
+        };
+        match recorded {
+            Some(t) => {
+                self.emit_for(id);
+                Ok(t)
+            }
+            None => Err("task was removed during execution".into()),
+        }
+    }
+
     /// Timer callback: run `id` only if the captured `generation` still matches
     /// the current one. A mutation between scheduling and firing bumps the
     /// generation and makes this a no-op, preventing a stale timer from running.
@@ -515,12 +596,16 @@ impl Scheduler {
 
     /// Guarded execution of a single task. The per-task guard rejects a second
     /// run (automatic or manual) while one is in flight. The provider/tool work
-    /// runs through the injected [`TaskRunner`] without holding the lock.
+    /// runs through the injected [`TaskRunner`] without holding the lock, and is
+    /// raced against a per-task cancellation signal so [`Scheduler::cancel`] can
+    /// stop it promptly.
     pub async fn execute(&self, id: &str, trigger: Trigger) -> Result<ScheduledTask, String> {
         // Phase 1: claim the run under the lock, emit Running. Capture the
         // last-valid (pre-Running) task snapshot so a later persist failure can
         // revert to a coherent terminal state rather than the transient Running.
-        let (task, pre_run_snapshot) = {
+        // Install a fresh cancellation channel whose sender lives in the guard
+        // map; the receiver stays here so we can race the run against a cancel.
+        let (task, pre_run_snapshot, mut cancel_rx) = {
             let mut inner = self.inner.lock().unwrap();
             let task = inner
                 .tasks
@@ -532,38 +617,58 @@ impl Scheduler {
             if trigger == Trigger::Auto && !task.enabled {
                 return Err("task is disabled".into());
             }
-            if inner.running.contains(id) {
+            if inner.cancels.contains_key(id) {
                 return Err("task already running".into());
             }
             // Snapshot BEFORE mutating status to Running: this is the last valid
             // persisted state to restore if the completion write fails.
             let pre_run_snapshot = inner.tasks.clone();
-            inner.running.insert(id.to_string());
+            let (cancel_tx, cancel_rx) = watch::channel(false);
+            inner.cancels.insert(id.to_string(), cancel_tx);
             if let Some(t) = inner.tasks.iter_mut().find(|t| t.id == id) {
                 t.last_status = RunStatus::Running;
             }
-            (task, pre_run_snapshot)
+            (task, pre_run_snapshot, cancel_rx)
         };
         self.emit_for(id);
 
-        // Phase 2: run without holding the lock.
-        let result = self.runner.run(&task).await;
+        // Phase 2: run without holding the lock, racing the runner future against
+        // a cancellation signal. Whichever resolves first wins; the loser (the
+        // runner future, on cancel) is dropped.
+        let outcome = {
+            let run_fut = self.runner.run(&task);
+            tokio::pin!(run_fut);
+            tokio::select! {
+                res = &mut run_fut => RunOutcome::Ran(res),
+                _ = wait_cancelled(&mut cancel_rx) => RunOutcome::Cancelled,
+            }
+        };
 
-        // Phase 3: record the outcome, advance the schedule, persist.
+        // Phase 3: record the outcome, advance the schedule, persist. Removing
+        // our guard entry under the lock is the arbiter: if it is already gone, a
+        // concurrent `cancel` recorded the terminal state and we discard our
+        // (stale) result instead of clobbering it.
         let recorded = {
             let mut inner = self.inner.lock().unwrap();
-            inner.running.remove(id);
+            if inner.cancels.remove(id).is_none() {
+                // `cancel` already finalized this run; nothing more to record.
+                return Err("run cancelled".into());
+            }
             let now = self.clock.now();
             let interval = task.cadence.interval_secs();
             let out = if let Some(t) = inner.tasks.iter_mut().find(|t| t.id == id) {
-                match &result {
-                    Ok(_) => {
+                match &outcome {
+                    RunOutcome::Ran(Ok(_)) => {
                         t.last_status = RunStatus::Succeeded;
                         t.last_error = None;
                     }
-                    Err(e) => {
+                    RunOutcome::Ran(Err(e)) => {
                         t.last_status = RunStatus::Failed;
                         t.last_error = Some(sanitize_error(e));
+                    }
+                    RunOutcome::Cancelled => {
+                        t.last_status = RunStatus::Cancelled;
+                        t.last_error = None;
                     }
                 }
                 t.last_run_at = Some(now);
@@ -596,13 +701,17 @@ impl Scheduler {
     fn emit_for(&self, id: &str) {
         let event = {
             let inner = self.inner.lock().unwrap();
-            inner.tasks.iter().find(|t| t.id == id).map(|t| StatusEvent {
-                id: t.id.clone(),
-                status: t.last_status,
-                last_run_at: t.last_run_at,
-                next_run_at: t.next_run_at,
-                last_error: t.last_error.clone(),
-            })
+            inner
+                .tasks
+                .iter()
+                .find(|t| t.id == id)
+                .map(|t| StatusEvent {
+                    id: t.id.clone(),
+                    status: t.last_status,
+                    last_run_at: t.last_run_at,
+                    next_run_at: t.next_run_at,
+                    last_error: t.last_error.clone(),
+                })
         };
         if let Some(ev) = event {
             self.sink.emit(&ev);
@@ -675,6 +784,22 @@ impl Scheduler {
         self.cancelled.store(true, Ordering::SeqCst);
         self.cancel.notify_waiters();
     }
+}
+
+/// Resolve once `rx` observes a `true` (cancellation requested). If the sender is
+/// dropped without ever sending `true`, this parks forever so the caller's other
+/// `select!` branch (the runner future) becomes the only way the race resolves.
+async fn wait_cancelled(rx: &mut watch::Receiver<bool>) {
+    if *rx.borrow() {
+        return;
+    }
+    while rx.changed().await.is_ok() {
+        if *rx.borrow() {
+            return;
+        }
+    }
+    // Sender dropped without a cancel: never resolve on this branch.
+    std::future::pending::<()>().await
 }
 
 /// Generate a task id (hex, OS randomness via `getrandom`).
@@ -769,6 +894,30 @@ mod tests {
         }
     }
 
+    /// A runner that blocks until released, letting a test hold exactly one run
+    /// "in flight" deterministically with no sleeps.
+    struct BlockingRunner {
+        started: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+    }
+    impl BlockingRunner {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                started: tokio::sync::Notify::new(),
+                release: tokio::sync::Notify::new(),
+            })
+        }
+    }
+    impl TaskRunner for BlockingRunner {
+        fn run<'a>(&'a self, _t: &'a ScheduledTask) -> BoxFut<'a, Result<String, String>> {
+            Box::pin(async move {
+                self.started.notify_one();
+                self.release.notified().await;
+                Ok("ok".into())
+            })
+        }
+    }
+
     #[derive(Default)]
     struct MemStore {
         tasks: Mutex<Vec<ScheduledTask>>,
@@ -828,6 +977,16 @@ mod tests {
         assert!(json.get("next_run_at").is_some());
         let back: ScheduledTask = serde_json::from_value(json).unwrap();
         assert_eq!(back, task);
+    }
+
+    #[test]
+    fn run_status_cancelled_serializes_as_string() {
+        assert_eq!(
+            serde_json::to_value(RunStatus::Cancelled).unwrap(),
+            serde_json::json!("Cancelled")
+        );
+        let back: RunStatus = serde_json::from_value(serde_json::json!("Cancelled")).unwrap();
+        assert_eq!(back, RunStatus::Cancelled);
     }
 
     #[test]
@@ -997,28 +1156,10 @@ mod tests {
 
     #[tokio::test]
     async fn overlapping_runs_of_same_task_are_rejected() {
-        // A runner that blocks until released lets us hold one run "in flight"
-        // deterministically, with no sleeps.
-        struct BlockingRunner {
-            started: tokio::sync::Notify,
-            release: tokio::sync::Notify,
-        }
-        impl TaskRunner for BlockingRunner {
-            fn run<'a>(&'a self, _t: &'a ScheduledTask) -> BoxFut<'a, Result<String, String>> {
-                Box::pin(async move {
-                    self.started.notify_one();
-                    self.release.notified().await;
-                    Ok("ok".into())
-                })
-            }
-        }
         let clock = FixedClock::new(1_000);
         let store = Arc::new(MemStore::default());
         let sink = Arc::new(RecSink::default());
-        let runner = Arc::new(BlockingRunner {
-            started: tokio::sync::Notify::new(),
-            release: tokio::sync::Notify::new(),
-        });
+        let runner = BlockingRunner::new();
         let sched = Scheduler::new(store, clock.clone(), runner.clone(), sink);
         let task = sched.create("p", Cadence::Hourly, true).unwrap();
         clock.set(task.next_run_at + 1);
@@ -1070,6 +1211,120 @@ mod tests {
             !sched.is_running(&task.id),
             "guard must be released even when completion persist fails"
         );
+    }
+
+    // --- Cancellation --------------------------------------------------------
+
+    #[tokio::test]
+    async fn cancel_running_task_records_cancelled_and_reschedules() {
+        let clock = FixedClock::new(1_000);
+        let store = Arc::new(MemStore::default());
+        let sink = Arc::new(RecSink::default());
+        let runner = BlockingRunner::new();
+        let sched = Scheduler::new(store.clone(), clock.clone(), runner.clone(), sink.clone());
+        let task = sched.create("p", Cadence::Hourly, true).unwrap();
+        let prev_next = task.next_run_at;
+        clock.set(prev_next + 1);
+
+        // Start an automatic run and wait until it is genuinely in flight.
+        let s2 = sched.clone();
+        let id = task.id.clone();
+        let handle = tokio::spawn(async move { s2.execute(&id, Trigger::Auto).await });
+        runner.started.notified().await;
+        assert!(sched.is_running(&task.id), "run must be in flight");
+
+        // Cancel it: returns the terminal Cancelled record with a future next run.
+        let cancelled = sched.cancel(&task.id).unwrap();
+        assert_eq!(cancelled.last_status, RunStatus::Cancelled);
+        assert_eq!(cancelled.last_error, None);
+        assert_eq!(cancelled.last_run_at, Some(clock.now()));
+        assert_eq!(
+            cancelled.next_run_at,
+            next_after(prev_next, clock.now(), 3_600)
+        );
+        assert!(cancelled.next_run_at > clock.now());
+
+        // The racing run observes the vanished guard and discards its own result.
+        let ran = handle.await.unwrap();
+        assert!(ran.is_err(), "cancelled run must not report success");
+        assert_eq!(ran.unwrap_err(), "run cancelled");
+
+        // Guard released, state persisted, and a Cancelled status event emitted.
+        assert!(!sched.is_running(&task.id));
+        assert_eq!(store.load()[0].last_status, RunStatus::Cancelled);
+        assert!(
+            sink.0
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.id == task.id && e.status == RunStatus::Cancelled),
+            "a Cancelled status event must be emitted"
+        );
+        // The runner future was dropped; releasing it now is a harmless no-op.
+        runner.release.notify_one();
+    }
+
+    #[tokio::test]
+    async fn cancel_when_not_running_errors() {
+        let clock = FixedClock::new(1_000);
+        let runner = Arc::new(CountingRunner::default());
+        let store = Arc::new(MemStore::default());
+        let sink = Arc::new(RecSink::default());
+        let sched = build(clock.clone(), runner.clone(), store.clone(), sink.clone());
+        let task = sched.create("p", Cadence::Hourly, true).unwrap();
+        let err = sched.cancel(&task.id).unwrap_err();
+        assert_eq!(err, "task is not running");
+        // Unknown id is likewise not running.
+        assert_eq!(sched.cancel("nope").unwrap_err(), "task is not running");
+    }
+
+    #[tokio::test]
+    async fn cancel_after_completion_reports_not_running() {
+        // If the run already finished (guard removed by `execute`), a late cancel
+        // must not fabricate a second terminal record.
+        let clock = FixedClock::new(1_000);
+        let runner = Arc::new(CountingRunner::default());
+        let store = Arc::new(MemStore::default());
+        let sink = Arc::new(RecSink::default());
+        let sched = build(clock.clone(), runner.clone(), store.clone(), sink.clone());
+        let task = sched.create("p", Cadence::Hourly, true).unwrap();
+        clock.set(task.next_run_at + 1);
+        let done = sched.run_now(&task.id).await.unwrap();
+        assert_eq!(done.last_status, RunStatus::Succeeded);
+        // The completed run is no longer cancellable.
+        assert_eq!(sched.cancel(&task.id).unwrap_err(), "task is not running");
+        assert_eq!(sched.list()[0].last_status, RunStatus::Succeeded);
+    }
+
+    #[tokio::test]
+    async fn cancelled_run_can_be_run_again() {
+        // After a cancel releases the guard, a fresh run of the same task is
+        // accepted (the guard is not leaked).
+        let clock = FixedClock::new(1_000);
+        let store = Arc::new(MemStore::default());
+        let sink = Arc::new(RecSink::default());
+        let runner = BlockingRunner::new();
+        let sched = Scheduler::new(store, clock.clone(), runner.clone(), sink);
+        let task = sched.create("p", Cadence::Hourly, true).unwrap();
+        clock.set(task.next_run_at + 1);
+
+        let s2 = sched.clone();
+        let id = task.id.clone();
+        let handle = tokio::spawn(async move { s2.execute(&id, Trigger::Manual).await });
+        runner.started.notified().await;
+        sched.cancel(&task.id).unwrap();
+        let _ = handle.await.unwrap();
+        assert!(!sched.is_running(&task.id));
+
+        // A new run now proceeds and can itself complete once released.
+        let s3 = sched.clone();
+        let id2 = task.id.clone();
+        let handle2 = tokio::spawn(async move { s3.execute(&id2, Trigger::Manual).await });
+        runner.started.notified().await;
+        assert!(sched.is_running(&task.id), "second run acquired the guard");
+        runner.release.notify_one();
+        let done = handle2.await.unwrap().unwrap();
+        assert_eq!(done.last_status, RunStatus::Succeeded);
     }
 
     #[tokio::test]

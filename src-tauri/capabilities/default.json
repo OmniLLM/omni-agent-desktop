@@ -23,6 +23,10 @@
     "core:app:default",
     "core:path:default",
     "core:resources:default",
-    "global-shortcut:default"
+    "global-shortcut:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://github.com/login/device" }]
+    }
   ]
 }

@@ -11,6 +11,7 @@
 //! skew. Public status never carries a token. Tokens and authorization payloads
 //! are never logged.
 
+use std::error::Error as _;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -31,6 +32,8 @@ const COPILOT_TOKEN_URL: &str = "https://api.github.com/copilot_internal/v2/toke
 const MODELS_URL: &str = "https://api.githubcopilot.com/models";
 /// Copilot inference API base host. Chat and Responses paths hang off this.
 const COPILOT_API_BASE: &str = "https://api.githubcopilot.com";
+const COPILOT_INTEGRATION_ID: &str = "vscode-chat";
+const COPILOT_EDITOR_VERSION: &str = "omni-agent-desktop/0.1";
 
 /// Refresh the Copilot token when absent or within this many seconds of expiry.
 pub const REFRESH_SKEW_SECS: u64 = 300;
@@ -339,8 +342,8 @@ pub fn build_copilot_request(
         ("Authorization".to_string(), format!("Bearer {copilot_token}")),
         ("Content-Type".to_string(), "application/json".to_string()),
         ("Accept".to_string(), "application/json".to_string()),
-        ("Copilot-Integration-Id".to_string(), "vscode-chat".to_string()),
-        ("Editor-Version".to_string(), "omni-agent-desktop/0.1".to_string()),
+        ("Copilot-Integration-Id".to_string(), COPILOT_INTEGRATION_ID.to_string()),
+        ("Editor-Version".to_string(), COPILOT_EDITOR_VERSION.to_string()),
         ("X-Request-Id".to_string(), request_id()),
     ];
     match endpoint {
@@ -668,7 +671,8 @@ impl CopilotAuth {
                 headers: vec![
                     ("Authorization".into(), format!("Bearer {token}")),
                     ("Accept".into(), "application/json".into()),
-                    ("Copilot-Integration-Id".into(), "vscode-chat".into()),
+                    ("Copilot-Integration-Id".into(), COPILOT_INTEGRATION_ID.into()),
+                    ("Editor-Version".into(), COPILOT_EDITOR_VERSION.into()),
                     ("X-Request-Id".into(), request_id()),
                     ("User-Agent".into(), "omni-agent-desktop".into()),
                 ],
@@ -770,6 +774,17 @@ impl ReqwestTransport {
     }
 }
 
+fn reqwest_error(error: reqwest::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
+}
+
 impl HttpTransport for ReqwestTransport {
     fn send(&self, req: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, String>> {
         let client = self.client.clone();
@@ -784,9 +799,9 @@ impl HttpTransport for ReqwestTransport {
             if let Some(body) = &req.body {
                 builder = builder.json(body);
             }
-            let resp = builder.send().await.map_err(|e| e.to_string())?;
+            let resp = builder.send().await.map_err(reqwest_error)?;
             let status = resp.status().as_u16();
-            let text = resp.text().await.map_err(|e| e.to_string())?;
+            let text = resp.text().await.map_err(reqwest_error)?;
             let body: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
             Ok(HttpResponse { status, body })
         })
@@ -1160,7 +1175,10 @@ mod http_tests {
         assert!(tok.headers.iter().any(|(k, v)| k == "Authorization" && v == "token gho_secret"));
         let m = reqs.iter().find(|r| r.url == MODELS_URL).expect("models call");
         assert!(m.headers.iter().any(|(k, v)| k == "Authorization" && v == "Bearer cop_abc"));
+        assert!(m.headers.iter().any(|(k, v)| k == "Copilot-Integration-Id" && v == COPILOT_INTEGRATION_ID));
+        assert!(m.headers.iter().any(|(k, v)| k == "Editor-Version" && v == COPILOT_EDITOR_VERSION));
         assert!(m.headers.iter().any(|(k, _)| k == "X-Request-Id"));
+        assert!(!m.headers.iter().any(|(_, v)| v.contains("gho_secret")));
     }
 
     #[tokio::test]

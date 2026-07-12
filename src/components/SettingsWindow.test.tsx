@@ -431,6 +431,33 @@ describe("SettingsWindow background preview", () => {
     }
   });
 
+  it("shows an accessible Saved indicator after persistence succeeds", async () => {
+    const user = userEvent.setup();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_settings") return realSettings;
+      if (cmd === "list_models") return ["gpt-5.4"];
+      return undefined;
+    });
+    const SettingsWindow = await importSettingsWindow();
+    render(<SettingsWindow />);
+
+    await user.click(
+      await screen.findByRole("button", { name: /save settings/i }),
+    );
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/saved/i);
+    expect(screen.getByRole("button", { name: /saved/i })).toBeDisabled();
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_settings_cmd",
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          active_provider: "custom-provider",
+          provider_configs: realSettings.provider_configs,
+        }),
+      }),
+    );
+  });
+
   it("restores the persisted background when a save fails", async () => {
     const user = userEvent.setup();
     const onBackgroundPreview = vi.fn();
@@ -719,9 +746,15 @@ describe("Copilot provider fields", () => {
     });
     const user = userEvent.setup();
     await selectCopilot(user);
-    await user.click(screen.getByRole("button", { name: /discover models/i }));
-    const option = await screen.findByText("o1");
-    await user.click(option);
+    const modelInput = await screen.findByLabelText("Model");
+    await waitFor(() => {
+      const options = document.querySelectorAll("#copilot-model-list option");
+      expect(Array.from(options, (option) => option.getAttribute("value"))).toContain(
+        "o1",
+      );
+    });
+    await user.type(modelInput, "o1");
+    expect(modelInput).toHaveValue("o1");
     await user.click(screen.getByRole("button", { name: /disconnect/i }));
     await waitFor(() =>
       expect(

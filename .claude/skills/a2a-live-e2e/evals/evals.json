@@ -1,0 +1,42 @@
+{
+  "skill_name": "a2a-live-e2e",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Run a live A2A end-to-end check through the Omni Agent desktop UI. Retrieve the enabled server's agent card first, choose a safe read-only skill, ask a realistic user question, and show me proof that the UI delegated to that A2A tool.",
+      "expected_output": "Uses the project skill, performs card-first discovery, refuses browser mocks, selects only read-only skills, requires tool-call/tool-result/done/visible-answer evidence, and reports redacted artifacts plus cleanup.",
+      "files": [],
+      "assertions": [
+        "Agent card retrieval is required before any UI prompt",
+        "The real Tauri UI is driven rather than browser mock mode",
+        "Only clearly read-only A2A skills are eligible",
+        "PASS requires matching A2A tool-call and tool-result events plus a visible answer",
+        "Artifacts are redacted and child processes are cleaned up"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Verify only the inventory connection's list-assets skill on the live A2A server, using the actual desktop composer. Do not run anything that changes server state.",
+      "expected_output": "Uses connection and skill filters without overriding the read-only safety classifier, drives the native UI, and reports exact delegation evidence or a bounded BLOCKED/FAIL diagnosis.",
+      "files": [],
+      "assertions": [
+        "Connection and skill filters are passed to the runner",
+        "Filtering never bypasses read-only safety",
+        "The selected card-derived A2A approval is handled once through the UI; other approval prompts fail",
+        "A plausible answer without delegation evidence is not accepted"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Diagnose whether this checkout is ready for live A2A UI E2E without invoking any live skill yet. I want agent-card discovery and actionable setup gaps only.",
+      "expected_output": "Runs the dry-run path, retrieves cards first, derives/skips questions safely, does not launch the UI or invoke a skill, and reports precise missing prerequisites with redacted artifacts.",
+      "files": [],
+      "assertions": [
+        "Uses --dry-run and does not launch the UI",
+        "Retrieves enabled connection cards with canonical and legacy fallback paths",
+        "Never prints saved tokens or provider credentials",
+        "Reports actionable prerequisite or discovery failures"
+      ]
+    }
+  ]
+}

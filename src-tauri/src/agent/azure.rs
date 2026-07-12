@@ -53,24 +53,6 @@ pub fn responses_url(endpoint: &str) -> Result<String, String> {
     Ok(format!("{base}/openai/v1/responses"))
 }
 
-/// Remap a logical `model` name to its concrete Azure deployment using the
-/// profile's structured `azure_deployments` mappings. Returns a borrowed
-/// deployment name tied to `config`. Errors when the model has no mapping or the
-/// mapped deployment is blank.
-pub fn remap_model<'a>(config: &'a ProviderConfig, model: &str) -> Result<&'a str, String> {
-    let wanted = model.trim();
-    for mapping in &config.azure_deployments {
-        if mapping.model.trim() == wanted {
-            let deployment = mapping.deployment.trim();
-            if deployment.is_empty() {
-                return Err(format!("Azure deployment for model '{wanted}' is empty"));
-            }
-            return Ok(deployment);
-        }
-    }
-    Err(format!("No Azure deployment mapped for model '{wanted}'"))
-}
-
 /// Validate an Azure provider profile for a live request: HTTPS endpoint, a
 /// present API key (plaintext or a stored credential), and a unique, non-empty
 /// mapping set whose selected model is a member (delegated to the shared Azure
@@ -265,33 +247,6 @@ mod tests {
     #[test]
     fn responses_url_rejects_non_https() {
         assert!(responses_url("http://a.openai.azure.com").is_err());
-    }
-
-    // --- Model -> deployment remap -----------------------------------------
-
-    #[test]
-    fn remap_model_returns_mapped_deployment() {
-        let c = azure_config();
-        assert_eq!(remap_model(&c, "gpt-4o").unwrap(), "prod-4o");
-        assert_eq!(remap_model(&c, "gpt-4o-mini").unwrap(), "prod-mini");
-        // Whitespace-tolerant.
-        assert_eq!(remap_model(&c, "  gpt-4o  ").unwrap(), "prod-4o");
-    }
-
-    #[test]
-    fn remap_model_errors_on_unknown_model() {
-        let c = azure_config();
-        assert!(remap_model(&c, "mystery").is_err());
-    }
-
-    #[test]
-    fn remap_model_errors_on_blank_deployment() {
-        let mut c = azure_config();
-        c.azure_deployments = vec![AzureDeploymentMapping {
-            model: "m".to_string(),
-            deployment: "   ".to_string(),
-        }];
-        assert!(remap_model(&c, "m").is_err());
     }
 
     // --- validate_config ----------------------------------------------------

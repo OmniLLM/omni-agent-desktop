@@ -19,7 +19,11 @@ screenshot-*.png
 skill-ui-test.png
 
 # AI-generated plan/doc directories
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/skills/a2a-live-e2e/
+!.claude/skills/a2a-live-e2e/**
+.claude/skills/*-workspace/
 .serena/
 .env
 *.ico
@@ -30,6 +34,7 @@ skill-ui-test.png
 
 # Runtime state accidentally written into repo cwd
 .config/
+.artifacts/
 
 # Stray debug dump
 dump.txt

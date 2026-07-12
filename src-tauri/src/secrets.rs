@@ -12,7 +12,9 @@
 //! Contract: a credential-store failure must be surfaced as an `Err` to the
 //! caller. Callers must never fall back to persisting the plaintext secret.
 
+#[cfg(test)]
 use std::collections::HashMap;
+#[cfg(test)]
 use std::sync::Mutex;
 
 use crate::settings::{AppSettings, ProviderType};
@@ -67,12 +69,14 @@ pub const PROTECTED_PROVIDERS: [ProviderType; 2] =
 
 /// An in-memory [`SecretStore`] used by tests. It can be configured to fail all
 /// mutating operations to exercise the "credential store failure" path.
+#[cfg(test)]
 #[derive(Default)]
 pub struct InMemorySecretStore {
     map: Mutex<HashMap<String, String>>,
     fail: bool,
 }
 
+#[cfg(test)]
 impl InMemorySecretStore {
     pub fn new() -> Self {
         Self {
@@ -96,6 +100,7 @@ impl InMemorySecretStore {
     }
 }
 
+#[cfg(test)]
 impl SecretStore for InMemorySecretStore {
     fn get(&self, key: &str) -> Result<Option<String>, SecretError> {
         if self.fail {

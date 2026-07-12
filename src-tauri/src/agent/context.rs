@@ -79,7 +79,6 @@ impl ContextAssembler {
                     let keep_chars = remaining * 4;
                     let truncated: String = s.content.chars().take(keep_chars).collect();
                     let block = format!("[{}]\n{}…", s.name, truncated);
-                    used += estimate_tokens(&block);
                     out.push(block);
                 }
                 break; // no room for anything after a truncated critical block

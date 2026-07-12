@@ -566,6 +566,7 @@ fn read_settings_from(path: &Path) -> Option<AppSettings> {
 
 /// Validate the active provider, project compatibility fields, and atomically
 /// persist. On failure the previous file is left untouched.
+#[cfg(test)]
 pub fn save_settings(
     path: &Path,
     mut settings: AppSettings,

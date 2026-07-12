@@ -446,17 +446,6 @@ impl CopilotAuth {
         self.inner.lock().unwrap().poll_interval
     }
 
-    /// True when a long-lived GitHub credential is present in the store. Lets
-    /// settings validation decide connectivity without exposing the token.
-    pub fn credential_present(&self) -> bool {
-        self.store
-            .get(github_token_key())
-            .ok()
-            .flatten()
-            .map(|v| !v.is_empty())
-            .unwrap_or(false)
-    }
-
     /// Cancel any in-flight flow. Network-free so a poll loop stops immediately.
     pub fn cancel(&self) {
         let mut inner = self.inner.lock().unwrap();
@@ -1215,11 +1204,9 @@ mod http_tests {
     async fn disconnect_clears_credential_and_status() {
         let (auth, _t, store) = service(vec![ok(json!({"login": "u"}))]);
         auth.connect_with_token("ghp_x").await.unwrap();
-        assert!(auth.credential_present());
         auth.disconnect().unwrap();
         assert_eq!(auth.status(), CopilotAuthStatus::Disconnected);
         assert_eq!(store.peek("github-copilot.token"), None);
-        assert!(!auth.credential_present());
     }
 
     #[tokio::test]

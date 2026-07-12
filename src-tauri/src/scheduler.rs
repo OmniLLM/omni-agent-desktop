@@ -241,12 +241,6 @@ pub trait StatusSink: Send + Sync {
     fn emit(&self, event: &StatusEvent);
 }
 
-/// A no-op status sink.
-pub struct NullSink;
-impl StatusSink for NullSink {
-    fn emit(&self, _event: &StatusEvent) {}
-}
-
 /// What initiated a run. Both paths share the same guarded execution; the guard
 /// rejects a second run of the same task regardless of trigger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -349,6 +343,7 @@ impl Scheduler {
 
     /// The current generation token. Timers capture this at schedule time and
     /// abort if it has advanced (any mutation bumps it).
+    #[cfg(test)]
     pub fn generation(&self) -> u64 {
         self.generation.load(Ordering::SeqCst)
     }
@@ -364,6 +359,7 @@ impl Scheduler {
 
     /// Whether a run is currently in flight for `id` (per-task guard state).
     /// Exposed for tests and health checks.
+    #[cfg(test)]
     pub fn is_running(&self, id: &str) -> bool {
         self.inner.lock().unwrap().cancels.contains_key(id)
     }
@@ -575,6 +571,7 @@ impl Scheduler {
     /// the current one. A mutation between scheduling and firing bumps the
     /// generation and makes this a no-op, preventing a stale timer from running.
     /// Returns whether the task was executed.
+    #[cfg(test)]
     pub async fn on_timer(&self, id: &str, generation: u64) -> bool {
         if self.generation() != generation {
             return false;

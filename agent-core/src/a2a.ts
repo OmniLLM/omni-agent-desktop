@@ -88,26 +88,56 @@ export function a2aToolDefinition(tool: A2aTool): unknown {
   };
 }
 
+/**
+ * Builds an actionable error message for a failed A2A HTTP call. Auth failures
+ * (401/403) are the common case when a connection's bearer token is missing or
+ * stale — discovery of the agent card is often unauthenticated, so a tool can
+ * appear available yet fail at delegate time. Call out the token explicitly so
+ * the user knows what to fix instead of seeing an opaque `a2a 401`.
+ */
+export function a2aHttpErrorMessage(status: number, tool: A2aTool): string {
+  if (status === 401 || status === 403) {
+    const which = tool.token
+      ? "the configured bearer token was rejected"
+      : "no bearer token is configured";
+    return `a2a ${status}: ${which} for connection '${tool.connection_id}'. Check the A2A connection's token in Settings.`;
+  }
+  return `a2a ${status}`;
+}
+
+/**
+ * Builds the JSON-RPC `message/send` request body for a delegate call.
+ *
+ * The skill id is carried at the params top level as `skillId` (camelCase) —
+ * this is the field A2A hubs route on. It is ALSO mirrored into
+ * `metadata.skill` for agents that read it there; omitting the top-level
+ * `skillId` makes the hub see an empty skill and reply "No route".
+ */
+export function buildDelegateBody(tool: A2aTool, task: string): unknown {
+  return {
+    jsonrpc: "2.0",
+    id: Date.now(),
+    method: "message/send",
+    params: {
+      skillId: tool.skill_id,
+      message: { role: "user", parts: [{ type: "text", text: task }] },
+      metadata: { skill: tool.skill_id },
+    },
+  };
+}
+
 /** JSON-RPC message/send. Returns the text extracted from the reply parts. */
 export async function delegate(tool: A2aTool, args: Record<string, unknown>): Promise<string> {
   const task = typeof args.task === "string" ? args.task : JSON.stringify(args);
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (tool.token) headers.authorization = `Bearer ${tool.token}`;
-  const body = {
-    jsonrpc: "2.0",
-    id: Date.now(),
-    method: "message/send",
-    params: {
-      message: { role: "user", parts: [{ type: "text", text: task }] },
-      metadata: { skill: tool.skill_id },
-    },
-  };
+  const body = buildDelegateBody(tool, task);
   const r = await fetch(tool.endpoint, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(`a2a ${r.status}`);
+  if (!r.ok) throw new Error(a2aHttpErrorMessage(r.status, tool));
   const reply = (await r.json()) as { result?: { message?: { parts?: unknown[] } }; error?: { message?: string } };
   if (reply.error) throw new Error(reply.error.message ?? "a2a error");
   const parts = reply.result?.message?.parts ?? [];

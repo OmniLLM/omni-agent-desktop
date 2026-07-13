@@ -489,21 +489,27 @@ export default function SettingsWindow({
     );
   };
 
-  const discoverA2a = async (connectionId: string) => {
-    setA2aDiscovery((prev) => ({ ...prev, [connectionId]: "discovering…" }));
+  const discoverA2a = async (connection: A2aConnection) => {
+    const key = connection.id;
+    setA2aDiscovery((prev) => ({ ...prev, [key]: "discovering…" }));
     try {
+      // Pass the live draft endpoint/token so discovery does not depend on the
+      // connection already being persisted to settings. Fall back to the saved
+      // connectionId lookup on the sidecar if endpoint is somehow empty.
       const card = await invoke<{ skills?: unknown[] }>("a2a_discover_card", {
-        connectionId,
+        connectionId: connection.id,
+        endpoint: connection.endpoint,
+        token: connection.token,
       });
       const count = Array.isArray(card?.skills) ? card.skills.length : 0;
       setA2aDiscovery((prev) => ({
         ...prev,
-        [connectionId]: `${count} skill(s)`,
+        [key]: `${count} skill(s)`,
       }));
     } catch (e) {
       setA2aDiscovery((prev) => ({
         ...prev,
-        [connectionId]: `error: ${e instanceof Error ? e.message : String(e)}`,
+        [key]: `error: ${e instanceof Error ? e.message : String(e)}`,
       }));
     }
   };
@@ -1201,7 +1207,7 @@ export default function SettingsWindow({
                         <button
                           type="button"
                           className="omni-btn"
-                          onClick={() => discoverA2a(conn.id)}
+                          onClick={() => discoverA2a(conn)}
                         >
                           Discover
                         </button>

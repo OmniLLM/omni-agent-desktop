@@ -2,7 +2,7 @@
   "name": "@omni-agent-desktop/agent-core",
   "version": "0.1.0",
   "private": true,
-  "description": "TypeScript agent core sidecar for omni-agent-desktop. Runs the agent loop, providers (Claude Agent SDK, Codex SDK, Azure, Copilot, custom OpenAI-compatible), tools, A2A, scheduler, memory, settings, and secrets. Talks to the Tauri Rust shell over stdio JSON-RPC.",
+  "description": "TypeScript agent core sidecar for omni-agent-desktop. Runs the agent loop, providers (custom OpenAI-compatible / Anthropic-messages HTTP, Azure Foundry, GitHub Copilot), tools, A2A, scheduler, memory, settings, and secrets. Talks to the Tauri Rust shell over stdio JSON-RPC.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -16,8 +16,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.0",
-    "@openai/codex-sdk": "^0.144.0",
     "undici": "^6.19.0",
     "zod": "^4.0.0"
   },

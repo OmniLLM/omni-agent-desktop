@@ -33,6 +33,32 @@ pub struct Msg {
     pub content: String,
 }
 
+/// Translate OpenAI-shape tool definitions
+/// (`{type:"function", function:{name,description,parameters}}`) into the
+/// Anthropic Messages tool shape (`{name, description, input_schema}`).
+/// A2A tools and local tools are both authored in the OpenAI shape, so this
+/// bridge is what lets an Anthropic-shape provider actually see — and thus
+/// route to — A2A skills.
+pub fn to_anthropic_tools(tools: &[Value]) -> Vec<Value> {
+    tools
+        .iter()
+        .filter_map(|t| {
+            let f = t.get("function").unwrap_or(t);
+            let name = f.get("name")?.as_str()?;
+            let desc = f.get("description").and_then(|d| d.as_str()).unwrap_or("");
+            let schema = f
+                .get("parameters")
+                .cloned()
+                .unwrap_or_else(|| json!({"type":"object","properties":{}}));
+            Some(json!({
+                "name": name,
+                "description": desc,
+                "input_schema": schema,
+            }))
+        })
+        .collect()
+}
+
 pub fn build_request(
     config: &ProviderConfig,
     system: &str,
@@ -46,6 +72,13 @@ pub fn build_request(
                 .iter()
                 .map(|m| json!({"role": m.role, "content": m.content}))
                 .collect();
+            let mut body = json!({"model": config.model, "system": system,
+                "messages": msgs, "max_tokens": 4096});
+            // Anthropic requires its own tool shape; without this translation
+            // the model never sees A2A tools and cannot route requests to them.
+            if !tools.is_empty() {
+                body["tools"] = json!(to_anthropic_tools(tools));
+            }
             BuiltRequest {
                 url: format!("{base}/messages"),
                 headers: vec![
@@ -53,8 +86,7 @@ pub fn build_request(
                     ("anthropic-version".into(), "2023-06-01".into()),
                     ("content-type".into(), "application/json".into()),
                 ],
-                body: json!({"model": config.model, "system": system,
-                    "messages": msgs, "max_tokens": 4096}),
+                body,
                 shape: ApiShape::AnthropicMessages,
             }
         }
@@ -263,6 +295,41 @@ mod tests {
         let r = build_request(&cfg(ApiShape::AnthropicMessages), "sys", &[], &[]);
         assert_eq!(r.url, "https://api.test.com/v1/messages");
         assert!(r.headers.iter().any(|(k, v)| k == "x-api-key" && v == "k"));
+    }
+
+    #[test]
+    fn anthropic_request_forwards_tools_in_native_shape() {
+        // Regression guard: without translating OpenAI-shape tool defs into
+        // Anthropic's `{name, description, input_schema}` shape, the model
+        // never sees A2A skills and cannot route to them.
+        let openai_tool = json!({
+            "type": "function",
+            "function": {
+                "name": "hub_1__search",
+                "description": "Delegate to A2A skill 'search'.",
+                "parameters": {"type": "object",
+                    "properties": {"task": {"type": "string"}},
+                    "required": ["task"]}
+            }
+        });
+        let r = build_request(
+            &cfg(ApiShape::AnthropicMessages),
+            "sys",
+            &[],
+            &[openai_tool],
+        );
+        let tools = r.body["tools"].as_array().expect("tools present");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["name"], "hub_1__search");
+        assert_eq!(tools[0]["input_schema"]["required"][0], "task");
+        // Anthropic shape uses input_schema, not parameters.
+        assert!(tools[0].get("parameters").is_none());
+    }
+
+    #[test]
+    fn anthropic_request_omits_tools_key_when_none() {
+        let r = build_request(&cfg(ApiShape::AnthropicMessages), "sys", &[], &[]);
+        assert!(r.body.get("tools").is_none());
     }
 
     #[test]

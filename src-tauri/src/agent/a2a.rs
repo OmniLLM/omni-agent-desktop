@@ -49,7 +49,20 @@ fn make_tool_name(conn_id: &str, skill_id: &str) -> String {
 }
 
 /// Derive callable tools from a connection's agent card, skipping disabled skills.
+///
+/// A2A agent cards may declare their JSON-RPC endpoint via `card.url` (or
+/// `card.endpoint`) — often a path distinct from the discovery origin (e.g.
+/// discovery lives at `https://hub/.well-known/agent-card.json` while RPC is
+/// served at `https://hub/a2a`). Honor that declaration exactly like
+/// omni-pilot's `getA2aRpcEndpoint` does; fall back to the configured endpoint
+/// when the card omits it.
 pub fn tools_from_card(conn: &A2aConnection, card: &Value) -> Vec<A2aTool> {
+    let card_endpoint = card["url"]
+        .as_str()
+        .or_else(|| card["endpoint"].as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| conn.endpoint.clone());
     let mut out = Vec::new();
     if let Some(skills) = card["skills"].as_array() {
         for skill in skills {
@@ -64,7 +77,7 @@ pub fn tools_from_card(conn: &A2aConnection, card: &Value) -> Vec<A2aTool> {
             out.push(A2aTool {
                 tool_name: make_tool_name(&conn.id, &skill_id),
                 connection_id: conn.id.clone(),
-                endpoint: conn.endpoint.clone(),
+                endpoint: card_endpoint.clone(),
                 token: conn.token.clone(),
                 skill_id: skill_id.clone(),
                 description: skill["description"].as_str().unwrap_or("").to_string(),
@@ -155,12 +168,23 @@ async fn post_rpc(
     token: &str,
     body: Value,
 ) -> Result<Value, String> {
-    let mut req = client.post(format!("{}/", normalize(endpoint))).json(&body);
+    // POST straight to the endpoint the card advertises (or the connection
+    // configured). Do NOT append a trailing `/` — hubs like OmniLauncher serve
+    // their RPC at a specific path (e.g. `/a2a`) and `/a2a/` 404s. omni-pilot
+    // POSTs to `getA2aRpcEndpoint(server)` verbatim; mirror that.
+    let url = normalize(endpoint);
+    let mut req = client.post(&url).json(&body);
     if !token.trim().is_empty() {
         req = req.header("authorization", format!("Bearer {}", token.trim()));
     }
     let resp = req.send().await.map_err(|e| e.to_string())?;
-    let val: Value = resp.json().await.map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!("A2A HTTP {status} from {url}: {text}"));
+    }
+    let val: Value =
+        serde_json::from_str(&text).map_err(|e| format!("A2A parse error from {url}: {e}"))?;
     if !val["error"].is_null() {
         return Err(val["error"]["message"]
             .as_str()
@@ -300,6 +324,21 @@ mod tests {
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].tool_name, "hub_1__search");
         assert_eq!(tools[0].skill_id, "search");
+        // No card `url` → fall back to the connection endpoint.
+        assert_eq!(tools[0].endpoint, "https://hub.test");
+    }
+
+    #[test]
+    fn card_url_overrides_connection_endpoint() {
+        // Agent cards may advertise a distinct RPC endpoint (spec: `url`).
+        // Regression guard: earlier we always POSTed to the raw configured
+        // endpoint, which 404'd on hubs that serve RPC at a subpath.
+        let card = json!({
+            "url": "https://hub.test/a2a",
+            "skills": [{"id": "search", "description": "d"}]
+        });
+        let tools = tools_from_card(&conn(), &card);
+        assert_eq!(tools[0].endpoint, "https://hub.test/a2a");
     }
 
     #[test]

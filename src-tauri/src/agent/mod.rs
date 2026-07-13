@@ -8,6 +8,9 @@ pub mod copilot;
 pub mod provider;
 pub mod tools;
 
+#[cfg(test)]
+mod a2a_e2e_tests;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;

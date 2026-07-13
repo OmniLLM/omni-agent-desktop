@@ -1,52 +1,58 @@
 /* === Theme Variables === */
+/* Dark theme: Microsoft M365 Copilot-inspired neutral dark.
+   Near-black neutral backgrounds (no blue cast), understated blue accent
+   used sparingly, low-contrast borders, soft rounded surfaces. */
 :root,
 [data-theme="dark"] {
-  --bg: #090a10;             /* Sleek Obsidian Space */
-  --bg-elevated: #11131e;    /* Premium Elevated Container background */
-  --surface: #181b28;        /* Input, card backgrounds */
-  --surface-2: #22273b;      /* Darker borders/highlights */
-  --surface-hover: #2b324f;  /* Subtle glow on hover */
-  --text: #f3f4f6;           /* Off-white crisp text */
-  --text-secondary: #9ca3af; /* Warm gray medium contrast */
-  --sub: #6b7280;            /* Lower contrast descriptive text */
-  --accent: #6366f1;         /* Indigo Neon primary accent */
-  --accent-dim: rgba(99, 102, 241, 0.15);
-  --accent-hover: rgba(99, 102, 241, 0.08);
-  --border: rgba(255, 255, 255, 0.07);
-  --shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7), 0 1px 3px rgba(0, 0, 0, 0.5);
-  --user-bubble: #6366f1;
-  --user-bubble-text: #ffffff;
-  --ai-bubble: #181b28;
-  --ai-text: #f3f4f6;
-  --success: #10b981;
-  --error: #ef4444;
-  --warning: #f59e0b;
-  --danger: #ef4444;
+  --bg: #1a1a1a;             /* M365 neutral near-black canvas */
+  --bg-elevated: #202020;    /* Elevated container / dialog background */
+  --surface: #2a2a2a;        /* Input, card, pill backgrounds */
+  --surface-2: #333333;      /* Darker borders/highlights */
+  --surface-hover: #313131;  /* Subtle neutral hover */
+  --text: #f2f2f2;           /* Crisp off-white text */
+  --text-secondary: #adadad; /* Neutral gray medium contrast */
+  --sub: #8a8a8a;            /* Lower contrast descriptive text */
+  --accent: #479ef5;         /* M365 communication blue, used sparingly */
+  --accent-dim: rgba(71, 158, 245, 0.16);
+  --accent-hover: rgba(71, 158, 245, 0.09);
+  --border: rgba(255, 255, 255, 0.08);
+  --shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.75), 0 1px 3px rgba(0, 0, 0, 0.5);
+  --user-bubble: #2f2f2f;    /* Neutral user bubble (M365 uses subtle surface, not colored) */
+  --user-bubble-text: #f2f2f2;
+  --ai-bubble: #202020;
+  --ai-text: #f2f2f2;
+  --success: #6ccb5f;
+  --error: #f0616d;
+  --warning: #f5b544;
+  --danger: #f0616d;
   --radius: 12px;
 }
 
+/* Light theme: Microsoft M365 Copilot-inspired neutral light.
+   Soft neutral gray canvas, white elevated surfaces, understated blue accent
+   used sparingly, low-contrast borders, soft rounded surfaces. */
 [data-theme="light"] {
-  --bg: #f5f6f9;             /* Light, soft warm gray-blue background */
-  --bg-elevated: #ffffff;    /* Clear white premium containers */
-  --surface: #eef1f5;        /* Input / badge background */
-  --surface-2: #e2e6f0;      /* Secondary surface border */
-  --surface-hover: #d7dce8;  /* Elevated state hover */
-  --text: #1e293b;           /* Premium Charcoal Slate */
-  --text-secondary: #475569; /* Soft Slate Secondary */
-  --sub: #64748b;            /* Subtle details */
-  --accent: #4f46e5;         /* Elegant Royal Indigo primary accent */
-  --accent-dim: rgba(79, 70, 229, 0.1);
-  --accent-hover: rgba(79, 70, 229, 0.06);
-  --border: rgba(79, 70, 229, 0.08);
-  --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 16px -6px rgba(0, 0, 0, 0.05);
-  --user-bubble: #4f46e5;
-  --user-bubble-text: #ffffff;
+  --bg: #f5f5f5;             /* M365 neutral light canvas */
+  --bg-elevated: #ffffff;    /* White elevated container / dialog */
+  --surface: #f0f0f0;        /* Input, card, pill backgrounds */
+  --surface-2: #e6e6e6;      /* Secondary surface border */
+  --surface-hover: #ebebeb;  /* Subtle neutral hover */
+  --text: #242424;           /* M365 near-black text */
+  --text-secondary: #616161; /* Neutral gray medium contrast */
+  --sub: #808080;            /* Lower contrast descriptive text */
+  --accent: #0f6cbd;         /* M365 communication blue, used sparingly */
+  --accent-dim: rgba(15, 108, 189, 0.1);
+  --accent-hover: rgba(15, 108, 189, 0.06);
+  --border: rgba(0, 0, 0, 0.08);
+  --shadow: 0 10px 25px -8px rgba(0, 0, 0, 0.12), 0 2px 6px -2px rgba(0, 0, 0, 0.08);
+  --user-bubble: #ebebeb;    /* Neutral user bubble (M365 uses subtle surface, not colored) */
+  --user-bubble-text: #242424;
   --ai-bubble: #ffffff;
-  --ai-text: #1e293b;
-  --success: #10b981;
-  --error: #ef4444;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --radius: 14px;
+  --ai-text: #242424;
+  --success: #0e700e;
+  --error: #c50f1f;
+  --warning: #bc4b09;
+  --danger: #c50f1f;
+  --radius: 12px;
 }
 

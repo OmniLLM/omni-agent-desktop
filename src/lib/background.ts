@@ -143,13 +143,13 @@ export function buildBackgroundCss(
 
   if (!image) {
     return theme === "dark"
-      ? "linear-gradient(160deg, #0b1220 0%, #0e1930 52%, #0a1426 100%)"
+      ? "linear-gradient(160deg, #1a1a1a 0%, #202020 52%, #1a1a1a 100%)"
       : "var(--bg)";
   }
 
   if (theme === "dark") {
     return `
-      linear-gradient(180deg, rgba(6, 12, 24, 0.74) 0%, rgba(8, 14, 28, 0.86) 100%),
+      linear-gradient(180deg, rgba(26, 26, 26, 0.74) 0%, rgba(32, 32, 32, 0.86) 100%),
       radial-gradient(circle at 18% -6%, color-mix(in srgb, var(--accent) 12%, transparent) 0, transparent 40%),
       ${image}
     `;

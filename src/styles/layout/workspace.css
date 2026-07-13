@@ -238,6 +238,11 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Reserve the scrollbar gutter on both sides so the centered chat column
+     never shifts when a scrollbar appears. This keeps the message column on
+     the same centering axis as the composer (which lives outside this scroll
+     container and has no scrollbar), so their edges stay aligned. */
+  scrollbar-gutter: stable both-edges;
   scroll-behavior: smooth;
 }
 
@@ -365,9 +370,9 @@
 .composer2 {
   flex-shrink: 0;
   width: 100%;
-  max-width: 760px;
+  max-width: var(--chat-column);
   margin: 0 auto;
-  padding: 8px 24px 20px;
+  padding: 8px var(--chat-gutter) 20px;
   box-sizing: border-box;
 }
 

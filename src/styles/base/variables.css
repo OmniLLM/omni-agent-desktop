@@ -26,6 +26,11 @@
   --warning: #f5b544;
   --danger: #f0616d;
   --radius: 12px;
+  /* Shared conversation-column geometry. Every centered element in the chat
+     view (messages, composer, approval prompt, working indicator) uses these
+     so their content edges align to a single column. */
+  --chat-column: 820px;
+  --chat-gutter: 24px;
 }
 
 /* Light theme: Microsoft M365 Copilot-inspired neutral light.

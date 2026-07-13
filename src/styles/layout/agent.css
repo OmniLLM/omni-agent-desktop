@@ -30,8 +30,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  width: calc(100% - 36px);
-  max-width: 760px;
+  width: calc(100% - 2 * var(--chat-gutter));
+  max-width: calc(var(--chat-column) - 2 * var(--chat-gutter));
   margin: 0 auto;
   padding: 12px 0 10px;
   border-bottom: 1px solid var(--border);
@@ -189,9 +189,9 @@
   flex-direction: column;
   gap: 24px;                  /* Increased for better breathing space */
   width: 100%;
-  max-width: 760px;
+  max-width: var(--chat-column);
   margin: 0 auto;
-  padding: 32px clamp(16px, 5vw, 40px) 16px;
+  padding: 32px var(--chat-gutter) 16px;
   box-sizing: border-box;
   min-height: 100%;
 }
@@ -213,6 +213,10 @@
   flex-direction: column;
   gap: 8px;
   max-width: 100%;
+  /* Flex children default to min-width:auto, which lets a wide <pre>/code
+     block push the bubble past the chat-pane's max-width. Pin to 0 so wide
+     content scrolls inside the block instead of widening the column. */
+  min-width: 0;
   animation: agent-bubble-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -497,11 +501,13 @@
   cursor: not-allowed;
 }
 
-/* === Tool approval prompt === */
+/* === Tool approval prompt ===
+   Aligned to the inner content band (column minus both gutters) so the card
+   border lines up with the composer box and message bubbles. */
 .approval {
   flex-shrink: 0;
   width: 100%;
-  max-width: 760px;
+  max-width: calc(var(--chat-column) - 2 * var(--chat-gutter));
   margin: 0 auto 12px;
   box-sizing: border-box;
   padding: 18px;
@@ -680,6 +686,10 @@
 /* Assistant markdown: rendered HTML blocks, so no pre-wrap collapsing */
 .bubble.assistant .content.md-content {
   white-space: normal;
+  /* Bound the rendered markdown to the bubble width; wide code blocks and
+     tables scroll internally rather than stretching the whole column. */
+  min-width: 0;
+  max-width: 100%;
 }
 
 .md-content > :first-child {

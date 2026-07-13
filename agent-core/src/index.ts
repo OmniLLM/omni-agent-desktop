@@ -21,6 +21,7 @@ import { approvals, type ApprovalDecision } from "./approvals.js";
 import { isLocal, isMutatingLocal, makeToolRunner, runOnce } from "./run.js";
 import {
   clearCopilotTokenCache,
+  listCopilotModels,
 } from "./providers/copilot.js";
 import {
   cancelDeviceFlow,
@@ -169,10 +170,13 @@ server.register("copilot.disconnect", async () => {
 // model as the single option (frontend handles Azure enumeration via mappings).
 server.register("copilot.list_models", async () => {
   const token = await getSecret("github-copilot.token");
-  if (!token) return { models: [] };
-  // Refreshing the short-lived token happens through the provider; we don't
-  // duplicate that logic here — the frontend already caches the last-known list.
-  return { models: [] };
+  if (!token) return [];
+  try {
+    return await listCopilotModels(token);
+  } catch (e) {
+    process.stderr.write(`agent-core: copilot.list_models FAIL ${(e as Error).message}\n`);
+    return [];
+  }
 });
 
 // --- azure -----------------------------------------------------------------
@@ -218,10 +222,45 @@ server.register("conversation.save", (params) => {
   return { ok: true };
 });
 
-// list_models fallback: for the OpenAI-compatible endpoint just echo an empty
-// list; the frontend also allows manual typing. Full provider probing lives in
-// the individual provider modules if we later want to enumerate.
-server.register("models.list", () => ({ models: [] }));
+// list_models: probe `<endpoint>/models`. Frontend calls
+//   invoke("list_models", { baseUrl, apiKey })
+// so we accept baseUrl/apiKey directly (custom-provider draft), plus fall back
+// to the active custom-provider config when no args are given.
+server.register("models.list", async (params) => {
+  const { fetch } = await import("undici");
+  const p = (params ?? {}) as { baseUrl?: string; apiKey?: string };
+  let baseUrl = p.baseUrl;
+  let apiKey = p.apiKey ?? "";
+  if (!baseUrl) {
+    const s = loadSettings();
+    const custom = s.provider_configs?.["custom-provider"];
+    baseUrl = custom?.endpoint ?? "";
+    apiKey = custom?.api_key ?? "";
+  }
+  if (!baseUrl) return [];
+  const endpoint = normalizeChatEndpoint(baseUrl);
+  const url = `${endpoint}/models`;
+  process.stderr.write(`agent-core: models.list ${url}\n`);
+  const r = await fetch(url, {
+    headers: apiKey
+      ? { authorization: `Bearer ${apiKey}`, accept: "application/json" }
+      : { accept: "application/json" },
+  });
+  if (!r.ok) throw new Error(`http ${r.status}: ${await r.text()}`);
+  const body = (await r.json()) as { data?: Array<Record<string, unknown>>; models?: Array<Record<string, unknown>> };
+  const raw = body.data ?? body.models ?? [];
+  return raw
+    .map((m) => (typeof m.id === "string" ? m.id : typeof m.name === "string" ? m.name : ""))
+    .filter((id): id is string => !!id)
+    .sort();
+});
+
+function normalizeChatEndpoint(endpoint: string): string {
+  const trimmed = endpoint.trim().replace(/\/+$/, "");
+  if (!trimmed) return trimmed;
+  const afterScheme = trimmed.split("://")[1] ?? trimmed;
+  return afterScheme.includes("/") ? trimmed : `${trimmed}/v1`;
+}
 
 // --- A2A -------------------------------------------------------------------
 server.register("a2a.discover_card", async (params) => {

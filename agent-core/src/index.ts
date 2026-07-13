@@ -23,8 +23,10 @@ import {
   clearCopilotTokenCache,
 } from "./providers/copilot.js";
 import {
+  cancelDeviceFlow,
   connectWithToken,
-  pollDeviceOnce,
+  disconnect as disconnectCopilot,
+  getStatus as getCopilotStatus,
   startDeviceFlow,
 } from "./providers/copilot-auth.js";
 import { pickProvider } from "./providers/router.js";
@@ -106,9 +108,16 @@ async function loadHydratedSettings(): Promise<AppSettings> {
 server.register("settings.get", async () => frontendView(loadSettings()));
 
 server.register("settings.save", async (params) => {
-  const s = params as AppSettings;
+  // Frontend calls invoke("save_settings_cmd", { settings }); the sidecar
+  // bridge passes that verbatim as `params`. Accept either wrapping style
+  // (belt-and-suspenders for the direct-caller path).
+  const wrapped = params as { settings?: AppSettings } | AppSettings;
+  const s: AppSettings = (wrapped as { settings?: AppSettings }).settings ?? (wrapped as AppSettings);
+  if (!s || typeof s !== "object" || !("active_provider" in s)) {
+    throw new Error("settings.save: expected an AppSettings payload");
+  }
   // Validate against the incoming (frontend) view before touching secrets.
-  const active = s.provider_configs?.[s.active_provider] ?? {} as ProviderConfig;
+  const active = s.provider_configs?.[s.active_provider] ?? ({} as ProviderConfig);
   const copilotStored = (await getSecret("github-copilot.token"))?.length ?? 0;
   const v = validateProvider(s.active_provider, active, copilotStored > 0);
   if (!v.ok) throw new Error(v.message);
@@ -119,7 +128,9 @@ server.register("settings.save", async (params) => {
 });
 
 server.register("settings.set_hotkey", async (params) => {
-  const { hotkey } = params as { hotkey: string };
+  const wrapped = params as { settings?: AppSettings; hotkey?: string };
+  const hotkey = wrapped.hotkey ?? wrapped.settings?.hotkey;
+  if (!hotkey) throw new Error("settings.set_hotkey: missing hotkey");
   const s = loadSettings();
   s.hotkey = hotkey;
   persistSettings(settingsPath(), s);
@@ -135,29 +146,23 @@ server.register("memory.save", (params) => {
 });
 
 // --- secrets (Copilot only exposed; Azure key managed via settings save) ----
-server.register("copilot.status", async () => {
-  const token = await getSecret("github-copilot.token");
-  return { connected: !!token && token.length > 0 };
-});
+server.register("copilot.status", async () => getCopilotStatus());
 
 server.register("copilot.start_device_flow", async () => startDeviceFlow());
 
-server.register("copilot.poll_device_flow", async (params) => {
-  const { device_code } = params as { device_code: string };
-  return pollDeviceOnce(device_code);
-});
+server.register("copilot.cancel_device_flow", async () => cancelDeviceFlow());
 
 server.register("copilot.connect_with_token", async (params) => {
   const { token } = params as { token: string };
-  await connectWithToken(token);
+  const status = await connectWithToken(token);
   clearCopilotTokenCache();
-  return { ok: true };
+  return status;
 });
 
 server.register("copilot.disconnect", async () => {
-  await deleteSecret("github-copilot.token");
+  const status = await disconnectCopilot();
   clearCopilotTokenCache();
-  return { ok: true };
+  return status;
 });
 
 // list models: for Copilot ask the /models endpoint; else return the configured

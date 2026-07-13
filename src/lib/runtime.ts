@@ -158,6 +158,37 @@ const TAURI_NATIVE_COMMANDS = new Set<string>([
   "test_azure_connection",
 ]);
 
+/// Translation from the legacy Rust command surface (deleted in the sidecar
+/// refactor) to the JSON-RPC method the agent-core sidecar registers. Commands
+/// listed here are routed through the generic `sidecar_call` Tauri bridge.
+/// Commands NOT listed (e.g. window/OS-shell commands) still go directly to
+/// their local Tauri command as before.
+///
+/// See docs/sidecar.md for the full method contract.
+const LEGACY_TO_SIDECAR: Record<string, string> = {
+  get_settings: "settings.get",
+  save_settings_cmd: "settings.save",
+  set_hotkey_cmd: "settings.set_hotkey",
+  agent_run: "agent.run",
+  approve_tool: "agent.approve",
+  a2a_discover_card: "a2a.discover_card",
+  list_scheduled: "scheduler.list",
+  create_scheduled: "scheduler.create",
+  update_scheduled: "scheduler.update",
+  delete_scheduled: "scheduler.delete",
+  run_scheduled_now: "scheduler.run_now",
+  cancel_scheduled: "scheduler.cancel",
+  get_memory: "memory.get",
+  save_memory: "memory.save",
+  start_copilot_device_flow: "copilot.start_device_flow",
+  get_copilot_auth_status: "copilot.status",
+  cancel_copilot_device_flow: "copilot.cancel_device_flow",
+  connect_copilot_with_token: "copilot.connect_with_token",
+  disconnect_copilot: "copilot.disconnect",
+  list_copilot_models: "copilot.list_models",
+  test_azure_connection: "azure.test_connection",
+};
+
 function isNativeCommand(cmd: string): boolean {
   return WINDOW_LOCAL_COMMANDS.has(cmd) || TAURI_NATIVE_COMMANDS.has(cmd);
 }
@@ -526,6 +557,11 @@ export async function invoke<T = unknown>(
   // the local Tauri process when available. The separated HTTP backend cannot
   // own OS window state or live global shortcut registration.
   if (isNativeCommand(cmd) && isTauriRuntime()) {
+    const sidecarMethod = LEGACY_TO_SIDECAR[cmd];
+    if (sidecarMethod) {
+      frontendLog("debug", `invoke ${cmd} routed to sidecar method ${sidecarMethod}`);
+      return tauriInvoke<T>("sidecar_call", { method: sidecarMethod, params: args ?? null });
+    }
     frontendLog("debug", `invoke ${cmd} routed to local Tauri command`);
     return tauriInvoke<T>(cmd, args);
   }
@@ -699,8 +735,9 @@ export async function invoke<T = unknown>(
   }
 
   if (isTauriRuntime() && (cmd === "save_settings_cmd" || cmd === "set_hotkey_cmd")) {
-    frontendLog("debug", `invoke ${cmd} routed to local Tauri command without backend`);
-    return tauriInvoke<T>(cmd, args);
+    frontendLog("debug", `invoke ${cmd} routed to sidecar without HTTP backend`);
+    const method = LEGACY_TO_SIDECAR[cmd] ?? cmd;
+    return tauriInvoke<T>("sidecar_call", { method, params: args ?? null });
   }
 
   console.warn(`[Tauri Shim] Mock invoke for: ${cmd}`);

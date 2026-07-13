@@ -156,8 +156,9 @@ describe("legacy HTTP backend-token storage", () => {
       invoke("save_settings_cmd", { settings: { hotkey: "Ctrl+Shift+P" } }),
     ).resolves.toEqual({ hotkey: "Ctrl+Shift+P" });
 
-    expect(tauriInvoke).toHaveBeenCalledWith("save_settings_cmd", {
-      settings: { hotkey: "Ctrl+Shift+P" },
+    expect(tauriInvoke).toHaveBeenCalledWith("sidecar_call", {
+      method: "settings.save",
+      params: { settings: { hotkey: "Ctrl+Shift+P" } },
     });
   });
 });
@@ -202,7 +203,10 @@ describe("backend mode detection", () => {
 
     await invoke("get_settings");
 
-    expect(tauriInvoke).toHaveBeenCalledWith("get_settings", undefined);
+    expect(tauriInvoke).toHaveBeenCalledWith("sidecar_call", {
+      method: "settings.get",
+      params: null,
+    });
   });
 
   it("desktop shell source no longer defaults to OmniLauncher REST port 1422", () => {
@@ -332,7 +336,10 @@ describe("http routing for new endpoints", () => {
     await expect(invoke("save_settings_cmd", { settings })).resolves.toEqual(settings);
 
     const call = state.calls.find((c) => c.url.endsWith("/api/settings") && c.method === "POST");
-    expect(tauriInvoke).toHaveBeenCalledWith("save_settings_cmd", { settings });
+    expect(tauriInvoke).toHaveBeenCalledWith("sidecar_call", {
+      method: "settings.save",
+      params: { settings },
+    });
     expect(call).toBeUndefined();
   });
 
@@ -346,7 +353,10 @@ describe("http routing for new endpoints", () => {
     await expect(invoke("set_hotkey_cmd", { settings })).resolves.toEqual(settings);
 
     const call = state.calls.find((c) => c.url.endsWith("/api/settings") && c.method === "POST");
-    expect(tauriInvoke).toHaveBeenCalledWith("set_hotkey_cmd", { settings });
+    expect(tauriInvoke).toHaveBeenCalledWith("sidecar_call", {
+      method: "settings.set_hotkey",
+      params: { settings },
+    });
     expect(call).toBeUndefined();
   });
 
@@ -368,7 +378,10 @@ describe("http routing for new endpoints", () => {
     await expect(invoke("save_settings_cmd", { settings })).resolves.toEqual(settings);
 
     const call = state.calls.find((c) => c.url.endsWith("/api/settings") && c.method === "POST");
-    expect(tauriInvoke).toHaveBeenCalledWith("save_settings_cmd", { settings });
+    expect(tauriInvoke).toHaveBeenCalledWith("sidecar_call", {
+      method: "settings.save",
+      params: { settings },
+    });
     expect(call).toBeUndefined();
   });
 
@@ -384,7 +397,10 @@ describe("http routing for new endpoints", () => {
 
     await expect(invoke("save_settings_cmd", { settings })).resolves.toEqual(settings);
 
-    expect(tauriInvoke).toHaveBeenCalledWith("save_settings_cmd", { settings });
+    expect(tauriInvoke).toHaveBeenCalledWith("sidecar_call", {
+      method: "settings.save",
+      params: { settings },
+    });
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 

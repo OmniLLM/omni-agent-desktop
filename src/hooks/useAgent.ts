@@ -84,9 +84,19 @@ export function useAgent(): UseAgentResult {
     null,
   );
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  // Seed a session id synchronously so the very first `send` can tag its run
+  // (the mount effect below may still adopt a stored session before any input).
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(
+    () => newSessionId(),
+  );
   const cleanupRef = useRef<Array<() => void>>([]);
   const loadedRef = useRef(false);
+  // The session that owns the in-flight run. Agent stream events carry the
+  // session they originated from; the listeners drop any event whose session
+  // does not match this, so switching chats mid-run never interleaves a run's
+  // thoughts/tool traces/answer into an unrelated session. Scheduled/background
+  // runs (which carry a different or absent session) are ignored here too.
+  const activeRunSessionRef = useRef<string | null>(null);
   // Snapshot of messages sent with the in-flight run, so history for the model
   // reflects the conversation up to (and including) the current question.
   const historyRef = useRef<ChatMessage[]>([]);
@@ -137,10 +147,25 @@ export function useAgent(): UseAgentResult {
 
   useEffect(() => {
     let active = true;
+    // An event belongs to the session shown now iff its `session` tag matches
+    // the run we started for this session. Untagged events (older backends)
+    // are accepted only when we actually have an in-flight run, preserving
+    // backward compatibility without leaking scheduled-run noise.
+    const isForActiveSession = (payload: unknown): boolean => {
+      const owner = activeRunSessionRef.current;
+      if (!owner) return false;
+      const evSession =
+        payload && typeof payload === "object" && "session" in (payload as Record<string, unknown>)
+          ? (payload as { session?: unknown }).session
+          : undefined;
+      if (evSession === undefined || evSession === null) return true;
+      return evSession === owner;
+    };
     (async () => {
       const un: Array<() => void> = [];
       un.push(
         await listen<unknown>("agent://done", (e) => {
+          if (!isForActiveSession(e.payload)) return;
           // Sidecar emits `{ text: string }`; tolerate a bare string too.
           const p = e.payload;
           const text =
@@ -161,10 +186,12 @@ export function useAgent(): UseAgentResult {
           ]);
           setLoading(false);
           setPendingApproval(null);
+          activeRunSessionRef.current = null;
         }),
       );
       un.push(
         await listen<unknown>("agent://error", (e) => {
+          if (!isForActiveSession(e.payload)) return;
           // Sidecar emits `{ message: string }`; older backends emitted a
           // bare string. Handle both plus any object that stringifies to
           // "[object Object]" (unwrap `.message` / `.error` / JSON.stringify).
@@ -189,11 +216,13 @@ export function useAgent(): UseAgentResult {
           ]);
           setLoading(false);
           setPendingApproval(null);
+          activeRunSessionRef.current = null;
         }),
       );
       // The model's reasoning that precedes its tool calls.
       un.push(
         await listen<unknown>("agent://thought", (e) => {
+          if (!isForActiveSession(e.payload)) return;
           // Sidecar emits `{ text: string }`; tolerate a bare string.
           const p = e.payload;
           const text =
@@ -212,6 +241,7 @@ export function useAgent(): UseAgentResult {
       // A tool is about to run (or is awaiting approval).
       un.push(
         await listen<ToolCallEvent>("agent://tool-call", (e) => {
+          if (!isForActiveSession(e.payload)) return;
           const summary = summarizeArgs(e.payload.args);
           setMessages((prev) => [
             ...prev,
@@ -228,6 +258,7 @@ export function useAgent(): UseAgentResult {
       // A tool finished; show a clamped preview of its output.
       un.push(
         await listen<ToolResultEvent>("agent://tool-result", (e) => {
+          if (!isForActiveSession(e.payload)) return;
           setMessages((prev) => [
             ...prev,
             {
@@ -240,6 +271,7 @@ export function useAgent(): UseAgentResult {
       );
       un.push(
         await listen<ToolCallEvent>("agent://tool-approval-request", (e) => {
+          if (!isForActiveSession(e.payload)) return;
           setPendingApproval(e.payload);
         }),
       );
@@ -258,25 +290,32 @@ export function useAgent(): UseAgentResult {
       // History is the prior conversation, before this new question.
       const history = conversationHistory(messages);
       historyRef.current = history;
+      const runSession = currentSessionId;
+      activeRunSessionRef.current = runSession;
       setMessages((prev) => [...prev, { role: "user", content: text }]);
       setLoading(true);
       try {
         // Mode is caller-controlled: "ask" prompts for mutating tools,
         // "autopilot" (Approve-for-me) auto-approves. The native side
-        // assembles the context window and injects memory.
-        await invoke("agent_run", { message: text, mode, history });
+        // assembles the context window and injects memory. `session` tags the
+        // run so its stream events are routed back only to this session.
+        await invoke("agent_run", { message: text, mode, history, session: runSession });
       } catch (e) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Error: ${e instanceof Error ? e.message : String(e)}`,
-          },
-        ]);
-        setLoading(false);
+        // Only surface the failure if the user is still on the run's session.
+        if (activeRunSessionRef.current === runSession) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+            },
+          ]);
+          setLoading(false);
+          activeRunSessionRef.current = null;
+        }
       }
     },
-    [messages],
+    [messages, currentSessionId],
   );
 
   const decide = useCallback(
@@ -289,6 +328,8 @@ export function useAgent(): UseAgentResult {
   );
 
   const newSession = useCallback(() => {
+    // Detach from any in-flight run: its later events must not land here.
+    activeRunSessionRef.current = null;
     setCurrentSessionId(newSessionId());
     setMessages([]);
     setPendingApproval(null);
@@ -296,6 +337,8 @@ export function useAgent(): UseAgentResult {
   }, []);
 
   const switchSession = useCallback(async (id: string) => {
+    // Detach from any in-flight run before showing another session's transcript.
+    activeRunSessionRef.current = null;
     const raw = await invoke<unknown>("load_session", { id }).catch(
       () => null,
     );
@@ -310,8 +353,11 @@ export function useAgent(): UseAgentResult {
       await invoke("delete_session", { id }).catch(() => {});
       await refreshSessions();
       if (id === currentSessionId) {
+        activeRunSessionRef.current = null;
         setCurrentSessionId(newSessionId());
         setMessages([]);
+        setPendingApproval(null);
+        setLoading(false);
       }
     },
     [currentSessionId, refreshSessions],

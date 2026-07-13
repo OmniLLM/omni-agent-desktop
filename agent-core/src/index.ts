@@ -330,11 +330,23 @@ server.register("agent.approve", (params) => {
 
 // --- agent run -------------------------------------------------------------
 server.register("agent.run", async (params, emit) => {
-  const { message, mode, history } = params as {
+  const { message, mode, history, session } = params as {
     message: string;
     mode?: RunMode;
     history?: Msg[];
+    session?: string;
   };
+  // Tag every event with the originating session so the frontend can route
+  // (or ignore) it. Without this, a run's thought/tool/done events would be
+  // injected into whatever session the user is currently viewing, interleaving
+  // unrelated conversations when they switch chats mid-run.
+  const semit = (event: string, data: unknown) =>
+    emit(
+      event,
+      data && typeof data === "object"
+        ? { ...(data as Record<string, unknown>), session }
+        : { value: data, session },
+    );
   try {
     const settings = await loadHydratedSettings();
     const runMode: RunMode = mode ?? settings.run_mode ?? "ask";
@@ -351,7 +363,7 @@ server.register("agent.run", async (params, emit) => {
         const card = await fetchCard(conn.endpoint, conn.token);
         a2aTools.push(...toolsFromCard(conn, card));
       } catch (e) {
-        emit("agent://thought", { text: `[a2a] ${conn.name}: ${(e as Error).message}` });
+        semit("agent://thought", { text: `[a2a] ${conn.name}: ${(e as Error).message}` });
       }
     }
     const a2aByName = new Map(a2aTools.map((t) => [t.tool_name, t]));
@@ -386,13 +398,13 @@ server.register("agent.run", async (params, emit) => {
       isMutating: (n) => isMutatingLocal(n) || (!isLocal(n) && a2aByName.has(n)),
       provider,
       runTool,
-      emit,
+      emit: semit,
     });
     appendDailyLog(configDir(), `agent replied (${outcome.text.length} chars)`);
-    emit("agent://done", { text: outcome.text });
+    semit("agent://done", { text: outcome.text });
     return outcome;
   } catch (e) {
-    emit("agent://error", { message: (e as Error).message });
+    semit("agent://error", { message: (e as Error).message });
     throw e;
   }
 });

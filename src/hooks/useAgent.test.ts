@@ -33,6 +33,7 @@ describe("useAgent", () => {
       message: "hello",
       mode: "ask",
       history: [],
+      session: expect.anything(),
     });
     expect(result.current.messages[0]).toMatchObject({
       role: "user",
@@ -128,6 +129,38 @@ describe("useAgent", () => {
     expect(traces.map((t) => t.kind)).toEqual(["thought", "action", "result"]);
     expect(traces[1].content).toContain("ls");
     expect(traces[1].content).toContain("/home");
+  });
+
+  it("does not inject a run's events into a session switched to mid-run", async () => {
+    // Regression: switching to another chat while a run is in flight must not
+    // interleave that run's thoughts/answer into the newly shown session.
+    const { result } = renderHook(() => useAgent());
+    await act(async () => {
+      await result.current.send("run in session A");
+    });
+    // Capture the session that owns the in-flight run.
+    const runCall = (invoke as any).mock.calls.find(
+      (c: any[]) => c[0] === "agent_run",
+    );
+    const ownerSession = runCall[1].session;
+
+    // User switches to a different chat before the run finishes.
+    await act(async () => {
+      await result.current.switchSession("some-other-session");
+    });
+    const afterSwitch = result.current.messages.length;
+
+    // Late events from the original run arrive, tagged with its session.
+    await act(async () => {
+      emit("agent://thought", { text: "late thought", session: ownerSession });
+      emit("agent://done", { text: "late answer", session: ownerSession });
+    });
+
+    // The now-visible session is untouched by the other run's stream.
+    expect(result.current.messages.length).toBe(afterSwitch);
+    expect(
+      result.current.messages.some((m) => m.content === "late answer"),
+    ).toBe(false);
   });
 });
 

@@ -54,6 +54,36 @@ describe("useAgent", () => {
     });
   });
 
+  it("unwraps object-shaped agent://done payloads ({ text })", async () => {
+    // Regression: the sidecar emits `{ text: string }`, not a bare string.
+    // If the listener stored the object directly, ChatPane crashed to a blank
+    // screen trying to render an object as markdown.
+    const { result } = renderHook(() => useAgent());
+    await act(async () => {
+      await result.current.send("hi");
+    });
+    await act(async () => {
+      emit("agent://done", { text: "**bold** reply" });
+    });
+    await waitFor(() => {
+      const last = result.current.messages[result.current.messages.length - 1];
+      expect(last).toMatchObject({ role: "assistant", content: "**bold** reply" });
+      expect(typeof last.content).toBe("string");
+    });
+  });
+
+  it("unwraps object-shaped agent://thought payloads ({ text })", async () => {
+    const { result } = renderHook(() => useAgent());
+    await act(async () => {
+      await result.current.send("go");
+    });
+    await act(async () => {
+      emit("agent://thought", { text: "let me think" });
+    });
+    const thought = result.current.messages.find((m) => m.kind === "thought");
+    expect(thought?.content).toBe("let me think");
+  });
+
   it("surfaces approval requests and clears them on decision", async () => {
     const { result } = renderHook(() => useAgent());
     await act(async () => {

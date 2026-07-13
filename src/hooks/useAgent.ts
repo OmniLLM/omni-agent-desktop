@@ -115,10 +115,24 @@ export function useAgent(): UseAgentResult {
     (async () => {
       const un: Array<() => void> = [];
       un.push(
-        await listen<string>("agent://done", (e) => {
+        await listen<unknown>("agent://done", (e) => {
+          // Sidecar emits `{ text: string }`; tolerate a bare string too.
+          const p = e.payload;
+          const text =
+            typeof p === "string"
+              ? p
+              : p && typeof p === "object" && "text" in (p as Record<string, unknown>)
+                ? String((p as { text: unknown }).text)
+                : (() => {
+                    try {
+                      return JSON.stringify(p);
+                    } catch {
+                      return String(p);
+                    }
+                  })();
           setMessages((prev) => [
             ...prev,
-            { role: "assistant", content: e.payload },
+            { role: "assistant", content: text },
           ]);
           setLoading(false);
           setPendingApproval(null);
@@ -154,11 +168,19 @@ export function useAgent(): UseAgentResult {
       );
       // The model's reasoning that precedes its tool calls.
       un.push(
-        await listen<string>("agent://thought", (e) => {
-          if (!e.payload?.trim()) return;
+        await listen<unknown>("agent://thought", (e) => {
+          // Sidecar emits `{ text: string }`; tolerate a bare string.
+          const p = e.payload;
+          const text =
+            typeof p === "string"
+              ? p
+              : p && typeof p === "object" && "text" in (p as Record<string, unknown>)
+                ? String((p as { text: unknown }).text)
+                : "";
+          if (!text.trim()) return;
           setMessages((prev) => [
             ...prev,
-            { role: "thinking", kind: "thought", content: e.payload },
+            { role: "thinking", kind: "thought", content: text },
           ]);
         }),
       );

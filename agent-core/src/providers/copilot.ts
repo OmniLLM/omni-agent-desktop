@@ -11,7 +11,7 @@ import { httpFetch as fetch } from "../http.js";
 import type { ProviderConfig } from "../settings.js";
 import { buildMessages, parseChatCompletions } from "./chat-completions.js";
 import { isCopilotResponsesOnlyModel } from "./copilot-model-shapes.js";
-import { buildResponsesInput, parseResponses } from "./responses.js";
+import { buildResponsesInput, parseResponses, toResponsesTools } from "./responses.js";
 import type { Msg, ParsedTurn, Provider } from "./types.js";
 
 const COPILOT_API_BASE = "https://api.githubcopilot.com";
@@ -155,7 +155,7 @@ async function copilotInferResponses(
     model,
     instructions: system,
     input: buildResponsesInput(messages),
-    tools: tools.length ? tools : undefined,
+    tools: tools.length ? toResponsesTools(tools) : undefined,
     tool_choice: tools.length ? "auto" : undefined,
     parallel_tool_calls: tools.length ? true : undefined,
   };

@@ -15,6 +15,40 @@ export function buildResponsesInput(messages: Msg[]): unknown[] {
   return messages.map((m) => ({ role: m.role, content: m.content }));
 }
 
+/**
+ * Convert Chat Completions tool schemas to the Responses tool schema.
+ *
+ * Chat Completions nests the definition under `function`:
+ *   { type: "function", function: { name, description, parameters } }
+ * Responses expects a FLAT shape with the fields hoisted to the top level:
+ *   { type: "function", name, description, parameters }
+ *
+ * Sending the nested shape to /responses yields HTTP 400
+ * `Missing required parameter: 'tools[0].name'`. Tools already in the flat
+ * shape (or unknown shapes) are passed through unchanged.
+ */
+export function toResponsesTools(tools: unknown[]): unknown[] {
+  return tools.map((t) => {
+    const tool = t as {
+      type?: unknown;
+      name?: unknown;
+      function?: { name?: unknown; description?: unknown; parameters?: unknown };
+    };
+    // Already flat (has a top-level name) — leave as-is.
+    if (typeof tool.name === "string") return t;
+    const fn = tool.function;
+    if (fn && typeof fn.name === "string") {
+      return {
+        type: "function",
+        name: fn.name,
+        description: typeof fn.description === "string" ? fn.description : "",
+        parameters: fn.parameters ?? { type: "object", properties: {} },
+      };
+    }
+    return t;
+  });
+}
+
 /** Parse a Responses payload into assistant text + tool calls. */
 export function parseResponses(body: unknown): ParsedTurn {
   const b = body as {

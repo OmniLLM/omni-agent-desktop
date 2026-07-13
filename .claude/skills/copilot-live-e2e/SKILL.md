@@ -62,18 +62,26 @@ Options: `--model <id>` (test a single catalog model), `--max-per-family <n>`
    representative per `(family, shape)` bucket. gpt is intentionally split into
    its **chat** and **responses** variants — that split is the whole point of
    the routing fix.
-4. Runs a real `infer()` per representative with a benign, deterministic prompt
-   ("reply OK"), no tools. A wrong route would 400 and throw; a correct route
-   returns non-empty text.
+4. Runs a real `infer()` per representative in two turns: a benign text-only
+   prompt ("reply OK"), then a **tool-enabled** turn passing a sample tool in
+   the OpenAI Chat Completions shape (the same shape agent-core's run loop
+   uses). The tool turn is essential — `/responses` requires a FLAT tool schema
+   (`{type,name,description,parameters}`) while Chat Completions nests it under
+   `function`; sending the nested shape to `/responses` yields
+   `400 Missing required parameter: 'tools[0].name'`. A text-only probe would
+   miss that. A wrong route (or wrong tool schema) 400s and throws; a correct
+   one returns without error.
 
 Coverage the user cares about: **claude** (chat), **gpt-chat** (e.g. gpt-4),
 **gpt-responses** (e.g. gpt-5.5), **mai** (responses), **gemini** (chat).
 
 ## Read-only guarantee
 
-The probe sends only a trivial "reply with OK" message with no tools and no
-tool_choice. It performs no mutations and touches no user data. It does not
-modify saved settings or the stored token.
+The probe sends a trivial "reply with OK" message and one "what time is it?"
+turn with a single read-only, no-op sample tool (`get_time`, no arguments). It
+performs no mutations and touches no user data. It does not modify saved
+settings or the stored token. The tool is never actually executed — the harness
+only verifies the model accepts the tool schema and responds.
 
 ## Verdict
 
@@ -101,15 +109,17 @@ Copilot live E2E — endpoint routing
 
 ## Unit-level guard
 
-For a fast check with no network or token, the pure routing map is unit-tested:
+For a fast check with no network or token, the pure logic is unit-tested:
 
 ```bash
-cd agent-core && bun test src/providers/copilot-model-shapes.test.ts
+cd agent-core && bun test src/providers/copilot-model-shapes.test.ts src/providers/responses.test.ts
 ```
 
-That asserts known models map to the right shape and that unknown `gpt-*` names
-(like `gpt-5.6-terra`) fall back to `responses`. Run it in CI; run the live
-harness locally when a Copilot token is available.
+That asserts known models map to the right shape, unknown `gpt-*` names (like
+`gpt-5.6-terra`) fall back to `responses`, and that `toResponsesTools` flattens
+the Chat Completions tool schema into the flat Responses shape (the
+`tools[0].name` fix). Run these in CI; run the live harness locally when a
+Copilot token is available.
 
 ## When to run
 

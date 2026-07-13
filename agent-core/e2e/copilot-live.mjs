@@ -51,6 +51,22 @@ const KEYRING_SERVICE = "omni-agent-desktop";
 const TOKEN_NAME = "github-copilot.token";
 const PROMPT = 'Reply with exactly the two characters: OK';
 
+// A sample tool in OpenAI Chat Completions shape — the SAME shape agent-core's
+// real run loop passes. Exercising a tool-enabled turn is essential: the
+// /responses endpoint needs a FLAT tool schema, and sending the nested Chat
+// shape yields 400 `Missing required parameter: 'tools[0].name'`. A text-only
+// probe would miss that regression entirely.
+const SAMPLE_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "get_time",
+      description: "Return the current time. Test-only, takes no arguments.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+];
+
 function parseArgs(argv) {
   const opts = { model: "", maxPerFamily: 1, json: false, insecureTls: false };
   for (let i = 0; i < argv.length; i += 1) {
@@ -161,30 +177,38 @@ async function main() {
   const results = [];
   for (const t of targets) {
     const provider = copilotProvider(makeConfig(t.id), token);
+    const endpoint = t.shape === "responses" ? "/responses" : "/chat/completions";
     const started = Date.now();
     try {
-      const turn = await provider.infer("You are a terse test probe.", [
+      // 1) Text-only turn: proves basic endpoint routing.
+      const plain = await provider.infer("You are a terse test probe.", [
         { role: "user", content: PROMPT },
       ], []);
-      const text = (turn?.text ?? "").trim();
-      const ms = Date.now() - started;
-      const ok = text.length > 0;
+      const text = (plain?.text ?? "").trim();
+      if (!text) throw new Error("empty response (text-only turn)");
+
+      // 2) Tool-enabled turn: proves the per-endpoint tool schema is correct.
+      // This is the turn that catches the `tools[0].name` 400 on /responses.
+      await provider.infer("You are a terse test probe. Use a tool if helpful.", [
+        { role: "user", content: "What time is it? Call the tool." },
+      ], SAMPLE_TOOLS);
+
       results.push({
         model: t.id,
         family: t.family,
         shape: t.shape,
-        endpoint: t.shape === "responses" ? "/responses" : "/chat/completions",
-        pass: ok,
-        ms,
+        endpoint,
+        pass: true,
+        ms: Date.now() - started,
         sample: text.slice(0, 40),
-        error: ok ? "" : "empty response",
+        error: "",
       });
     } catch (e) {
       results.push({
         model: t.id,
         family: t.family,
         shape: t.shape,
-        endpoint: t.shape === "responses" ? "/responses" : "/chat/completions",
+        endpoint,
         pass: false,
         ms: Date.now() - started,
         sample: "",

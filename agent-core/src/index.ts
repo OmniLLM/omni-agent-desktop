@@ -99,6 +99,29 @@ function buildSystemPrompt(mode: RunMode, memory: string): string {
 server.register("hello", () => ({ protocol: PROTOCOL_VERSION, name: "agent-core", version: "0.1.0" }));
 server.register("ping", (params) => ({ pong: true, echo: params ?? null }));
 
+/// Diagnostic RPC — dump the sidecar's current view of state that commonly
+/// causes "why doesn't it work?" tickets: secret presence, active provider,
+/// resolved model, and the current copilot auth state. Called by the frontend
+/// dev console or the Rust `--debug` bridge to troubleshoot inference errors.
+server.register("diag.state", async () => {
+  const s = loadSettings();
+  const copilotSecret = await getSecret("github-copilot.token");
+  const azureSecret = await getSecret("azure-foundry.api_key");
+  const cop = await getCopilotStatus();
+  return {
+    active_provider: s.active_provider,
+    active_model: s.provider_configs?.[s.active_provider]?.model ?? "",
+    active_endpoint: s.provider_configs?.[s.active_provider]?.endpoint ?? "",
+    active_api_shape: s.provider_configs?.[s.active_provider]?.api_shape ?? "",
+    secrets: {
+      "github-copilot.token": !!copilotSecret,
+      "azure-foundry.api_key": !!azureSecret,
+    },
+    copilot_status: cop,
+    a2a_connections: s.a2a_connections.map((c) => ({ id: c.id, name: c.name, enabled: c.enabled })),
+  };
+});
+
 // --- settings --------------------------------------------------------------
 async function loadHydratedSettings(): Promise<AppSettings> {
   const s = loadSettings();
@@ -300,6 +323,9 @@ server.register("agent.run", async (params, emit) => {
     const settings = await loadHydratedSettings();
     const runMode: RunMode = mode ?? settings.run_mode ?? "ask";
     const copilotToken = (await getSecret("github-copilot.token")) ?? null;
+    process.stderr.write(
+      `agent-core: agent.run mode=${runMode} active=${settings.active_provider} model=${settings.provider_configs?.[settings.active_provider]?.model} copilotToken=${copilotToken ? "present" : "MISSING"}\n`,
+    );
 
     // Discover A2A tools from every enabled connection.
     const a2aTools: A2aTool[] = [];

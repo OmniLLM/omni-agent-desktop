@@ -114,6 +114,7 @@ async function pollOnce(): Promise<void> {
   if (Math.floor(Date.now() / 1000) > flow.expires_at) {
     stopPolling();
     currentStatus = { state: "expired" };
+    process.stderr.write("agent-core: copilot device flow: expired\n");
     return;
   }
   try {
@@ -129,6 +130,18 @@ async function pollOnce(): Promise<void> {
     const body = (await r.json()) as { access_token?: string; error?: string; interval?: number };
     if (body.access_token) {
       await setSecret("github-copilot.token", body.access_token);
+      // Read-back verification: catch keyring silently-not-persisting bugs
+      // (which produce the "Copilot is not connected" error at inference).
+      const verify = await getSecret("github-copilot.token");
+      if (!verify) {
+        stopPolling();
+        currentStatus = {
+          state: "error",
+          message: "OAuth succeeded but the token could not be re-read from the secret store. Try setting a plaintext token or check the keyring backend.",
+        };
+        process.stderr.write("agent-core: copilot device flow: STORE VERIFY FAILED\n");
+        return;
+      }
       stopPolling();
       // Fetch login for a nicer UI label.
       let login = "";
@@ -141,37 +154,39 @@ async function pollOnce(): Promise<void> {
         /* login is optional */
       }
       currentStatus = { state: "connected", login };
-      process.stderr.write("agent-core: copilot device flow: authorized\n");
+      process.stderr.write(`agent-core: copilot device flow: AUTHORIZED (login=${login || "?"})\n`);
       return;
     }
     switch (body.error) {
       case "authorization_pending":
-        // Keep waiting — status stays awaiting_user.
+        process.stderr.write("agent-core: copilot poll: authorization_pending\n");
         return;
       case "slow_down":
-        // Bump the interval per GitHub's guidance.
         if (currentFlow) {
           const newMs = currentFlow.interval_ms + 5000;
           clearInterval(currentFlow.timer!);
           currentFlow.interval_ms = newMs;
           currentFlow.timer = setInterval(() => void pollOnce(), newMs);
+          process.stderr.write(`agent-core: copilot poll: slow_down -> ${newMs}ms\n`);
         }
         return;
       case "access_denied":
         stopPolling();
         currentStatus = { state: "cancelled" };
+        process.stderr.write("agent-core: copilot device flow: access_denied\n");
         return;
       case "expired_token":
         stopPolling();
         currentStatus = { state: "expired" };
+        process.stderr.write("agent-core: copilot device flow: expired_token\n");
         return;
       default:
         stopPolling();
         currentStatus = { state: "error", message: body.error ?? "unknown error" };
+        process.stderr.write(`agent-core: copilot device flow: ERROR ${body.error ?? "unknown"}\n`);
         return;
     }
   } catch (e) {
-    // Transient — log and keep polling.
     process.stderr.write(`agent-core: copilot poll error (retrying): ${(e as Error).message}\n`);
   }
 }

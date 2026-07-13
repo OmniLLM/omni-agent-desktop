@@ -125,10 +125,28 @@ export function useAgent(): UseAgentResult {
         }),
       );
       un.push(
-        await listen<string>("agent://error", (e) => {
+        await listen<unknown>("agent://error", (e) => {
+          // Sidecar emits `{ message: string }`; older backends emitted a
+          // bare string. Handle both plus any object that stringifies to
+          // "[object Object]" (unwrap `.message` / `.error` / JSON.stringify).
+          const p = e.payload;
+          const msg =
+            typeof p === "string"
+              ? p
+              : p && typeof p === "object" && "message" in (p as Record<string, unknown>)
+                ? String((p as { message: unknown }).message)
+                : p && typeof p === "object" && "error" in (p as Record<string, unknown>)
+                  ? String((p as { error: unknown }).error)
+                  : (() => {
+                      try {
+                        return JSON.stringify(p);
+                      } catch {
+                        return String(p);
+                      }
+                    })();
           setMessages((prev) => [
             ...prev,
-            { role: "assistant", content: `Error: ${e.payload}` },
+            { role: "assistant", content: `Error: ${msg}` },
           ]);
           setLoading(false);
           setPendingApproval(null);

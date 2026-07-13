@@ -10,7 +10,11 @@
 import { httpFetch as fetch } from "../http.js";
 import type { ProviderConfig } from "../settings.js";
 import { buildMessages, parseChatCompletions } from "./chat-completions.js";
-import type { ParsedTurn, Provider } from "./types.js";
+import { isCopilotResponsesOnlyModel } from "./copilot-model-shapes.js";
+import { buildResponsesInput, parseResponses } from "./responses.js";
+import type { Msg, ParsedTurn, Provider } from "./types.js";
+
+const COPILOT_API_BASE = "https://api.githubcopilot.com";
 
 interface TokenCache {
   value: string;
@@ -74,7 +78,7 @@ export interface CopilotModel {
 
 export async function listCopilotModels(longLivedToken: string): Promise<CopilotModel[]> {
   const token = await getShortLivedToken(longLivedToken);
-  const r = await fetch("https://api.githubcopilot.com/models", {
+  const r = await fetch(`${COPILOT_API_BASE}/models`, {
     headers: copilotHeaders(token),
   });
   if (!r.ok) throw new Error(`copilot /models http ${r.status}: ${await r.text()}`);
@@ -104,20 +108,64 @@ export function copilotProvider(cfg: ProviderConfig, longLivedToken: string | nu
     async infer(system, messages, tools): Promise<ParsedTurn> {
       if (!longLivedToken) throw new Error("GitHub Copilot is not connected");
       const token = await getShortLivedToken(longLivedToken);
-      const body = {
-        model: cfg.model || "gpt-4o",
-        messages: buildMessages(system, messages),
-        tools: tools.length ? tools : undefined,
-      };
-      const r = await fetch("https://api.githubcopilot.com/chat/completions", {
-        method: "POST",
-        headers: copilotHeaders(token),
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) throw new Error(`copilot http ${r.status}: ${await r.text()}`);
-      return parseChatCompletions((await r.json()) as unknown);
+      const model = cfg.model || "gpt-4o";
+
+      // Route to the correct endpoint for the model. Responses-only models
+      // (e.g. gpt-5.5, gpt-5.6-terra) reject /chat/completions with an HTTP
+      // 400 `unsupported_api_for_model`; they must use /responses.
+      if (isCopilotResponsesOnlyModel(model)) {
+        return copilotInferResponses(token, model, system, messages, tools);
+      }
+      return copilotInferChat(token, model, system, messages, tools);
     },
   };
+}
+
+/** Chat Completions path — POST /chat/completions. */
+async function copilotInferChat(
+  token: string,
+  model: string,
+  system: string,
+  messages: Msg[],
+  tools: unknown[],
+): Promise<ParsedTurn> {
+  const body = {
+    model,
+    messages: buildMessages(system, messages),
+    tools: tools.length ? tools : undefined,
+  };
+  const r = await fetch(`${COPILOT_API_BASE}/chat/completions`, {
+    method: "POST",
+    headers: copilotHeaders(token),
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`copilot http ${r.status}: ${await r.text()}`);
+  return parseChatCompletions((await r.json()) as unknown);
+}
+
+/** Responses path — POST /responses (for responses-only models). */
+async function copilotInferResponses(
+  token: string,
+  model: string,
+  system: string,
+  messages: Msg[],
+  tools: unknown[],
+): Promise<ParsedTurn> {
+  const body = {
+    model,
+    instructions: system,
+    input: buildResponsesInput(messages),
+    tools: tools.length ? tools : undefined,
+    tool_choice: tools.length ? "auto" : undefined,
+    parallel_tool_calls: tools.length ? true : undefined,
+  };
+  const r = await fetch(`${COPILOT_API_BASE}/responses`, {
+    method: "POST",
+    headers: copilotHeaders(token),
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`copilot http ${r.status}: ${await r.text()}`);
+  return parseResponses((await r.json()) as unknown);
 }
 
 /** Discard the cached short-lived token (call on disconnect or 401). */

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "../lib/runtime";
 import type {
   AppSettings,
+  CopilotModel,
   ProviderConfig,
   ProviderType,
 } from "../types/app";
@@ -98,13 +99,48 @@ export default function Composer({
   }, [open]);
 
   // Fetch the model list for the active provider when the picker opens or the
-  // provider changes. Clear the previous provider's models first so a switch
-  // never shows a stale list while the new one loads.
+  // provider changes. Each provider has its own discovery path, so clear the
+  // previous provider's models first — a switch must never show another
+  // provider's list while the new one loads.
   useEffect(() => {
     if (!open) return;
     setModels([]);
     if (!activeConfig) return;
     let active = true;
+
+    if (activeProvider === "github-copilot") {
+      // Copilot's endpoint/key live in the OS credential store (blank in the
+      // config view), so the generic /models probe can't be used. Use the
+      // dedicated Copilot discovery command instead.
+      invoke<CopilotModel[]>("list_copilot_models")
+        .then((list) => {
+          if (!active) return;
+          setModels(
+            Array.isArray(list) ? list.map((m) => m.id).sort() : [],
+          );
+        })
+        .catch(() => {
+          if (active) setModels([]);
+        });
+      return () => {
+        active = false;
+      };
+    }
+
+    if (activeProvider === "azure-foundry") {
+      // Azure models are the configured deployment mappings, not a network
+      // probe — surface the mapped model names directly.
+      const names = (activeConfig.azure_deployments ?? [])
+        .map((m) => m.model.trim())
+        .filter(Boolean)
+        .sort();
+      setModels(names);
+      return () => {
+        active = false;
+      };
+    }
+
+    // Custom provider: probe the configured endpoint for its model list.
     invoke<string[]>("list_models", {
       baseUrl: activeConfig.endpoint,
       apiKey: activeConfig.api_key,

@@ -75,7 +75,9 @@ export default function Sidebar({
           <div className="sidebar__empty">No tasks yet</div>
         ) : (
           <div className="sidebar__tasks">
-            {sessions.map((session) => (
+            {sessions.map((session) => {
+              const label = session.title?.trim() || "Untitled task";
+              return (
               <div
                 key={session.id}
                 className={`sidebar__task${
@@ -85,20 +87,21 @@ export default function Sidebar({
                 <span
                   className="sidebar__task-title"
                   onClick={() => onSelectTask(session.id)}
-                  title={session.title}
+                  title={label}
                 >
-                  {session.title}
+                  {label}
                 </span>
                 <button
                   type="button"
                   className="sidebar__task-delete"
-                  aria-label={`Delete ${session.title}`}
+                  aria-label={`Delete ${label}`}
                   onClick={() => onDeleteTask(session.id)}
                 >
                   ✕
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

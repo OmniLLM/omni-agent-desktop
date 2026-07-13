@@ -50,6 +50,26 @@ function newSessionId(): string {
   return `s-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 }
 
+/** Derive a sidebar title from the first user turn so saved sessions show a
+ * meaningful label instead of a blank row. Collapses whitespace and trims to a
+ * reasonable length. Falls back to "New task" when no user text exists yet. */
+function deriveSessionTitle(messages: ChatMessage[]): string {
+  const firstUser = messages.find((m) => m.role === "user");
+  const text = (firstUser?.content ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return "New task";
+  return text.length > 60 ? `${text.slice(0, 60)}…` : text;
+}
+
+/** Normalize a `load_session` result into the message array. The sidecar's
+ * `sessions.load` returns the full record `{ id, title, messages, ... }`, but
+ * older shells / the runtime mock may return a bare `ChatMessage[]`. Accept
+ * both so clicking a history session always restores its full transcript. */
+function extractSessionMessages(raw: unknown): ChatMessage[] {
+  if (Array.isArray(raw)) return raw as ChatMessage[];
+  const messages = (raw as { messages?: unknown } | null)?.messages;
+  return Array.isArray(messages) ? (messages as ChatMessage[]) : [];
+}
+
 /** Only user/assistant turns form the conversation context sent to the model. */
 function conversationHistory(messages: ChatMessage[]): ChatMessage[] {
   return messages.filter(
@@ -89,11 +109,12 @@ export function useAgent(): UseAgentResult {
       setSessions(Array.isArray(list) ? list : []);
       if (Array.isArray(list) && list.length > 0) {
         const id = list[0].id;
-        const saved = await invoke<ChatMessage[]>("load_session", { id }).catch(
-          () => [] as ChatMessage[],
+        const raw = await invoke<unknown>("load_session", { id }).catch(
+          () => null,
         );
+        const saved = extractSessionMessages(raw);
         setCurrentSessionId(id);
-        if (Array.isArray(saved) && saved.length) setMessages(saved);
+        if (saved.length) setMessages(saved);
       } else {
         setCurrentSessionId(newSessionId());
       }
@@ -105,7 +126,11 @@ export function useAgent(): UseAgentResult {
   useEffect(() => {
     if (!loadedRef.current || !currentSessionId) return;
     if (messages.length === 0) return; // don't write empty sessions
-    invoke("save_session", { id: currentSessionId, messages })
+    invoke("save_session", {
+      id: currentSessionId,
+      messages,
+      title: deriveSessionTitle(messages),
+    })
       .then(() => refreshSessions())
       .catch(() => {});
   }, [messages, currentSessionId, refreshSessions]);
@@ -271,11 +296,11 @@ export function useAgent(): UseAgentResult {
   }, []);
 
   const switchSession = useCallback(async (id: string) => {
-    const saved = await invoke<ChatMessage[]>("load_session", { id }).catch(
-      () => [] as ChatMessage[],
+    const raw = await invoke<unknown>("load_session", { id }).catch(
+      () => null,
     );
     setCurrentSessionId(id);
-    setMessages(Array.isArray(saved) ? saved : []);
+    setMessages(extractSessionMessages(raw));
     setPendingApproval(null);
     setLoading(false);
   }, []);

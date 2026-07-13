@@ -16,7 +16,7 @@ const SUGGESTIONS = [
   },
   {
     icon: "◔",
-    title: "Automate routine and recurring work",
+    title: "Automate routine and recurring task",
     prompt: "Help me automate a routine or recurring task.",
   },
 ];

@@ -33,7 +33,7 @@
   width: calc(100% - 36px);
   max-width: 760px;
   margin: 0 auto;
-  padding: 10px 0 8px;
+  padding: 12px 0 10px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -187,11 +187,11 @@
 .chat-pane {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;                  /* Increased for better breathing space */
   width: 100%;
   max-width: 760px;
   margin: 0 auto;
-  padding: 28px clamp(16px, 5vw, 40px) 12px;
+  padding: 32px clamp(16px, 5vw, 40px) 16px;
   box-sizing: border-box;
   min-height: 100%;
 }
@@ -211,7 +211,7 @@
 .bubble {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   max-width: 100%;
   animation: agent-bubble-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -219,7 +219,7 @@
 @keyframes agent-bubble-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -228,7 +228,7 @@
 }
 
 .bubble .content {
-  font-size: 15px;
+  font-size: 14.5px;
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -238,15 +238,16 @@
 .bubble.user {
   align-self: flex-end;
   align-items: flex-end;
-  max-width: 78%;
+  max-width: 80%;
 }
 
 .bubble.user .content {
-  padding: 10px 16px;
-  border-radius: 18px;
+  padding: 12px 18px;
+  border-radius: 18px 18px 4px 18px;
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
+  box-shadow: var(--shadow);
 }
 
 /* Assistant: plain text, full width, no bubble or label */
@@ -254,6 +255,9 @@
   align-self: stretch;
   align-items: flex-start;
   max-width: 100%;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 15%, transparent);
+  padding-left: 16px;
+  margin: 4px 0;
 }
 
 .bubble.assistant .content {
@@ -272,26 +276,26 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: 2px;
-  opacity: 0.75;
+  margin-top: 4px;
+  opacity: 0;
   transition: opacity 0.15s ease;
 }
 
 .bubble.assistant:hover .msg-actions {
-  opacity: 1;
+  opacity: 0.85;
 }
 
 .msg-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--sub);
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
@@ -309,29 +313,30 @@
   display: grid;
   grid-template-columns: auto auto 1fr;
   align-items: baseline;
-  gap: 8px;
-  padding: 7px 12px;
+  gap: 10px;
+  padding: 10px 14px;
   border-radius: 10px;
-  border: 1px dashed color-mix(in srgb, var(--border) 90%, transparent);
-  background: color-mix(in srgb, var(--surface) 45%, transparent);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--sub);
+  color: var(--text-secondary);
   animation: agent-bubble-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .trace-icon {
   font-size: 12px;
   opacity: 0.9;
+  color: var(--accent);
 }
 
 .trace-label {
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--sub);
-  opacity: 0.7;
+  opacity: 0.8;
 }
 
 .trace-content {
@@ -362,20 +367,20 @@
   align-self: flex-start;
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  padding: 9px 15px;
-  border-radius: 16px;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 14px;
   border: 1px solid var(--border);
-  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  border-bottom-left-radius: 5px;
-  background: var(--ai-bubble);
+  border-left: 3px solid var(--accent);
+  background: var(--bg-elevated);
   box-shadow: var(--shadow);
   animation: agent-bubble-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .thinking-text {
-  font-size: 13.5px;
-  color: var(--sub);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
   letter-spacing: 0.01em;
 }
 
@@ -497,12 +502,12 @@
   flex-shrink: 0;
   width: 100%;
   max-width: 760px;
-  margin: 0 auto 4px;
+  margin: 0 auto 12px;
   box-sizing: border-box;
-  padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--warning) 10%, var(--bg-elevated));
+  padding: 18px;
+  border: 1.5px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-elevated));
   box-shadow: var(--shadow);
   animation: agent-approval-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -519,7 +524,7 @@
 }
 
 .approval p {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   font-size: 13.5px;
   color: var(--text);
 }
@@ -531,16 +536,16 @@
 }
 
 .approval pre {
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  max-height: 160px;
+  margin: 0 0 14px;
+  padding: 12px;
+  max-height: 180px;
   overflow: auto;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.5;
   color: var(--text-secondary);
-  background: color-mix(in srgb, var(--bg) 70%, transparent);
-  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  border: 1.5px solid var(--border);
   border-radius: 8px;
 }
 
@@ -548,9 +553,9 @@
   font: inherit;
   font-size: 12.5px;
   font-weight: 600;
-  padding: 8px 14px;
+  padding: 8px 16px;
   margin-right: 8px;
-  border-radius: 9px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -569,11 +574,17 @@
   background: var(--accent);
   border-color: transparent;
   color: var(--user-bubble-text);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .approval button:last-of-type {
   border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
   color: var(--danger);
+  background: transparent;
+}
+
+.approval button:last-of-type:hover {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 .approval button:first-of-type:hover {
@@ -589,8 +600,9 @@
   align-items: stretch;
   justify-content: center;
   padding: 6vh 24px;
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
-  backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--bg) 65%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   animation: agent-fade-in 0.14s ease both;
 }
 

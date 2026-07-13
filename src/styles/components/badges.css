@@ -7,12 +7,12 @@
   font-weight: 700;
   letter-spacing: 0.05em;
   line-height: 1;
-  padding: 3px 7px;
+  padding: 3px 8px;
   border-radius: 999px;
   flex-shrink: 0;
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--accent-dim);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .omni-badge--ai-large {
   display: inline-flex;
@@ -21,12 +21,12 @@
   font-size: 12px;
   font-weight: 700;
   min-height: 30px;
-  padding: 5px 10px;
+  padding: 5px 12px;
   border-radius: 8px;
   letter-spacing: 0;
 }
 .omni-badge--outline {
   background: transparent;
-  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 

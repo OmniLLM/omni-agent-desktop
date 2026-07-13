@@ -2,7 +2,7 @@
 .chat-msg {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   animation: omni-fade-in 200ms ease both;
 }
 
@@ -17,79 +17,87 @@
 /* Tool chips row */
 .chat-msg__tools {
   display: flex;
-  gap: 5px;
+  gap: 6px;
   flex-wrap: wrap;
   padding-left: 4px;
 }
 
 .chat-msg__tool-badge {
   font-size: 11px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--surface-2);
-  padding: 2px 8px;
-  border-radius: 10px;
-  color: var(--sub);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--text-secondary);
   font-weight: 500;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 
 .chat-msg__tool-badge--skill {
   background: var(--accent-dim);
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
   color: var(--accent);
 }
 
 @keyframes omni-chip-pulse {
   0%,
   100% {
-    opacity: 0.7;
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 40%, transparent);
+    opacity: 0.75;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 30%, transparent);
   }
   50% {
     opacity: 1;
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 0%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 0%, transparent);
   }
 }
 
 .chat-msg__tool-badge--active {
   animation: omni-chip-pulse 1.4s ease-in-out infinite;
   background: var(--accent-dim);
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
   color: var(--accent);
+  font-weight: 600;
 }
 
 /* Bubble */
 .chat-msg__user-bubble {
   background: var(--user-bubble);
   color: var(--user-bubble-text);
-  padding: 9px 14px;
+  padding: 11px 16px;
   border-radius: 16px 16px 4px 16px;
   max-width: 78%;
-  font-size: 14px;
-  line-height: 1.65;
+  font-size: 14.5px;
+  line-height: 1.6;
   word-break: break-word;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 25%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .chat-msg__ai-bubble {
   background: var(--surface);
   color: var(--text);
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-radius: 4px 16px 16px 16px;
   max-width: 78%;
-  font-size: 14px;
-  line-height: 1.65;
+  font-size: 14.5px;
+  line-height: 1.6;
   word-break: break-word;
-  border-left: 3px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  box-shadow: var(--shadow);
 }
 
 /* Streaming cursor */
 .omni-cursor::after {
-  content: "|";
+  content: "▊";
   animation: omni-blink 1s step-start infinite;
   color: var(--accent);
-  margin-left: 1px;
+  margin-left: 2px;
+  font-size: 13px;
+  vertical-align: baseline;
+}
+
+@keyframes omni-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 /* Loading dots */
@@ -102,10 +110,10 @@
 }
 
 .loading__dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--sub);
+  background: var(--accent);
   animation: omni-dot-pulse 1.4s ease-in-out infinite;
 }
 .loading__dot:nth-child(2) {
@@ -113,5 +121,16 @@
 }
 .loading__dot:nth-child(3) {
   animation-delay: 0.4s;
+}
+
+@keyframes omni-dot-pulse {
+  0%, 100% {
+    transform: scale(0.6);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
 }
 

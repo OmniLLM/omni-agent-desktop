@@ -23,7 +23,7 @@
         "decorations": false,
         "transparent": false,
         "center": true,
-        "alwaysOnTop": true,
+        "alwaysOnTop": false,
         "visible": false
       }
     ],

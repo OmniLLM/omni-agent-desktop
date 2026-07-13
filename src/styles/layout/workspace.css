@@ -6,7 +6,8 @@
 .workspace {
   display: grid;
   grid-template-columns: var(--sidebar-w, 260px) 1fr;
-  height: 100vh;
+  height: calc(100vh - 40px); /* Adjust height to start below the titlebar */
+  margin-top: 40px;           /* Push the workspace down so it does not hide under absolute titlebar */
   width: 100%;
   overflow: hidden;
 }
@@ -802,20 +803,28 @@
 
 /* === Custom window titlebar (frameless window controls) === */
 .titlebar {
-  position: fixed;
+  position: absolute;
   top: 0;
+  left: 0;
   right: 0;
-  height: 32px;
+  height: 40px; /* Slightly taller for modern header feel */
   z-index: 200;
   display: flex;
   align-items: stretch;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
-/* Drag pad to the left of the buttons so the top-right corner can move the
-   window without covering the sidebar's own top-left controls. */
+/* Drag pad across the titlebar so the whole top area can drag the window */
 .titlebar__drag {
-  width: 140px;
+  flex: 1;
   -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  padding-left: 16px;
 }
 
 .titlebar__controls {
@@ -828,7 +837,7 @@
   align-items: center;
   justify-content: center;
   width: 44px;
-  height: 32px;
+  height: 40px; /* Match titlebar height */
   border: none;
   background: transparent;
   color: var(--text-secondary);

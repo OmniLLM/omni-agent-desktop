@@ -10,7 +10,11 @@ export default function Titlebar() {
 
   return (
     <div className="titlebar">
-      <div className="titlebar__drag" data-tauri-drag-region />
+      <div className="titlebar__drag" data-tauri-drag-region>
+        <span style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "6px" }}>
+          ✦ Omni Agent Desktop
+        </span>
+      </div>
       <div className="titlebar__controls">
         <button
           type="button"

@@ -7,6 +7,28 @@ description: Validate that omni-agent-desktop auto-routes model tool calls to th
 
 Confirms the desktop app dispatches model-emitted tool calls to A2A hubs/agents when a discovered skill matches. Rooted in the regression where Anthropic-shape provider requests silently omitted `tools`, leaving the model unable to ever emit a `tool_use` for an A2A skill.
 
+## Run now (one-shot)
+
+Single command that runs every A2A-relevant test in this repo — static Anthropic-shape checks, unit tests, the in-crate E2E, and the shared-loop A2A gating tests. Test filters go after `--` so the runner accepts multiple substring matches:
+
+```bash
+cd src-tauri && cargo test --bin omni-agent-desktop -- \
+  agent::a2a \
+  agent::run_once_tests::ask_mode_requires_approval_for_a2a_in_both_origins \
+  agent::run_once_tests::plan_mode_blocks_a2a_delegation_in_both_origins \
+  agent::run_once_tests::ask_mode_denied_a2a_does_not_execute \
+  provider::tests::anthropic_request_forwards_tools_in_native_shape \
+  provider::tests::anthropic_request_omits_tools_key_when_none
+```
+
+Expect **14 passed, 0 failed**:
+- 8 × `agent::a2a::tests::*` (card discovery, tool derivation, JSON-RPC)
+- 1 × `agent::a2a_e2e_tests::model_tool_use_routes_to_a2a_hub_end_to_end`
+- 3 × `agent::run_once_tests::*` A2A gating (approval, plan-mode block, denied)
+- 2 × `provider::tests::anthropic_request_*` (native-shape forwarding)
+
+If any fail, drop to the per-step sections below to isolate.
+
 ## When to run
 
 - After editing `src-tauri/src/agent/provider.rs`, `agent/a2a.rs`, `agent/mod.rs`, or `agent/tools.rs`.

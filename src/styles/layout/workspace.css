@@ -713,58 +713,106 @@
   position: relative;
 }
 
+/* Model selector reads as an integral part of the input box's bottom-right,
+   not a bolted-on bordered control: borderless at rest, a soft surface on
+   hover, and the model name in the primary text color so it feels like a
+   first-class affordance rather than a form field. */
 .composer2__model {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  gap: 5px;
+  border: 1px solid transparent;
+  border-radius: 9px;
   background: transparent;
   color: var(--text-secondary);
   font: inherit;
   font-size: 12.5px;
-  padding: 5px 10px;
+  font-weight: 500;
+  padding: 5px 9px;
+  max-width: 220px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.composer2__model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer2__model:hover {
   background: var(--surface-hover);
   color: var(--text);
-  border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.composer2__picker.is-open .composer2__model {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .composer2__model-caret {
-  font-size: 10px;
+  font-size: 9px;
   opacity: 0.7;
+  transition: transform 0.18s ease;
+}
+
+.composer2__picker.is-open .composer2__model-caret {
+  transform: rotate(180deg);
+  opacity: 1;
 }
 
 .composer2__menu {
   position: absolute;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 10px);
   right: 0;
-  min-width: 220px;
-  max-height: 320px;
+  min-width: 250px;
+  max-height: 340px;
   overflow-y: auto;
-  padding: 6px;
+  overscroll-behavior: contain;
+  padding: 7px;
   border: 1px solid var(--border);
-  border-radius: 11px;
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
   z-index: 30;
+  transform-origin: bottom right;
+  animation: composerMenuIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes composerMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .composer2__menu-group {
-  padding: 8px 10px 4px;
-  font-size: 10.5px;
+  padding: 8px 10px 5px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--sub);
 }
 
+.composer2__menu-group + .composer2__menu-group {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
 .composer2__menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
   border: none;
@@ -773,8 +821,9 @@
   font: inherit;
   font-size: 13px;
   padding: 7px 10px;
-  border-radius: 7px;
+  border-radius: 8px;
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .composer2__menu-item:hover {
@@ -784,10 +833,19 @@
 .composer2__menu-item.is-active {
   background: var(--accent-dim);
   color: var(--accent);
+  font-weight: 500;
+}
+
+/* Trailing check on the selected item — a familiar, scannable "current" mark. */
+.composer2__menu-item.is-active::after {
+  content: "✓";
+  margin-left: auto;
+  font-size: 12px;
+  opacity: 0.9;
 }
 
 .composer2__menu-empty {
-  padding: 7px 10px;
+  padding: 9px 10px;
   font-size: 12.5px;
   color: var(--sub);
 }

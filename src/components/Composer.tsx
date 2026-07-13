@@ -133,7 +133,10 @@ export default function Composer({
           </button>
           <span className="composer2__spacer" />
 
-          <div className="composer2__picker" ref={menuRef}>
+          <div
+            className={`composer2__picker${open ? " is-open" : ""}`}
+            ref={menuRef}
+          >
             <button
               type="button"
               className="composer2__model"
@@ -142,7 +145,9 @@ export default function Composer({
               onClick={() => setOpen((v) => !v)}
               title="Select provider and model"
             >
-              {activeModel || "Select model"}
+              <span className="composer2__model-name">
+                {activeModel || "Select model"}
+              </span>
               <span aria-hidden="true" className="composer2__model-caret">
                 ▾
               </span>

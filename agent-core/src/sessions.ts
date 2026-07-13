@@ -16,6 +16,7 @@ function sessionsDir(): string {
 export interface SessionMeta {
   id: string;
   title?: string;
+  created_at: number;
   updated_at: number;
   message_count: number;
 }
@@ -29,12 +30,14 @@ export function listSessions(): SessionMeta[] {
       const raw = JSON.parse(readFileSync(join(dir, name), "utf8")) as {
         id?: string;
         title?: string;
+        created_at?: number;
         updated_at?: number;
         messages?: unknown[];
       };
       out.push({
         id: raw.id ?? name.replace(/\.json$/, ""),
         title: raw.title,
+        created_at: raw.created_at ?? raw.updated_at ?? 0,
         updated_at: raw.updated_at ?? 0,
         message_count: Array.isArray(raw.messages) ? raw.messages.length : 0,
       });
@@ -42,7 +45,8 @@ export function listSessions(): SessionMeta[] {
       /* skip corrupt */
     }
   }
-  out.sort((a, b) => b.updated_at - a.updated_at);
+  // Order by creation time (descending) so opening a session does not reorder the list.
+  out.sort((a, b) => b.created_at - a.created_at);
   return out;
 }
 
@@ -54,7 +58,17 @@ export function loadSession(id: string): unknown {
 
 export function saveSession(id: string, messages: unknown[], title?: string): void {
   const p = join(sessionsDir(), `${id}.json`);
-  atomicWrite(p, JSON.stringify({ id, title, messages, updated_at: Date.now() }, null, 2));
+  // Preserve the original creation time so opening/updating a session never changes its order.
+  let created_at = Date.now();
+  if (existsSync(p)) {
+    try {
+      const prev = JSON.parse(readFileSync(p, "utf8")) as { created_at?: number; updated_at?: number };
+      created_at = prev.created_at ?? prev.updated_at ?? created_at;
+    } catch {
+      /* fall back to now */
+    }
+  }
+  atomicWrite(p, JSON.stringify({ id, title, messages, created_at, updated_at: Date.now() }, null, 2));
 }
 
 export function deleteSession(id: string): boolean {

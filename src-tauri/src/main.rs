@@ -250,6 +250,17 @@ fn main() {
         .manage(shortcut_slot.clone())
         .setup(move |app| {
             let window = app.get_webview_window("main").expect("main window");
+            // Ensure the taskbar / window icon is set at runtime. In unbundled or
+            // dev runs the embedded window icon may be missing, leaving a blank
+            // taskbar entry, so apply it explicitly from the bundled PNG.
+            match tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")) {
+                Ok(icon) => {
+                    if let Err(e) = window.set_icon(icon) {
+                        log::warn!("failed to set window icon: {e}");
+                    }
+                }
+                Err(e) => log::warn!("failed to decode window icon: {e}"),
+            }
             window.center().ok();
             window.show().ok();
 

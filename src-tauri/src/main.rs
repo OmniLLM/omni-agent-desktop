@@ -54,11 +54,22 @@ async fn sidecar_call(
     method: String,
     params: Option<Value>,
 ) -> Result<Value, String> {
-    state
-        .0
-        .call(&method, params.unwrap_or(Value::Null))
-        .await
-        .map_err(|e| e.to_string())
+    let params = params.unwrap_or(Value::Null);
+    log::debug!(
+        "sidecar_call -> {method} params={}",
+        preview(&params)
+    );
+    let res = state.0.call(&method, params).await;
+    match &res {
+        Ok(v) => log::debug!("sidecar_call <- {method} ok result={}", preview(v)),
+        Err(e) => log::warn!("sidecar_call <- {method} FAIL {e}"),
+    }
+    res.map_err(|e| e.to_string())
+}
+
+fn preview(v: &Value) -> String {
+    let s = v.to_string();
+    if s.len() > 300 { format!("{}…({}b)", &s[..300], s.len()) } else { s }
 }
 
 /// Legacy frontend logger command — retained because the React shell emits
@@ -191,13 +202,24 @@ fn register_shortcut(
 // Logging
 // -----------------------------------------------------------------------------
 
-fn init_logging() {
+/// Initialize logging. `--debug` (or OMNI_AGENT_DEBUG=1) enables Trace level and
+/// also flips OMNI_AGENT_VERBOSE=1 so the sidecar echoes every RPC to stderr.
+/// The Rust process forwards the sidecar's stderr to its own stderr, so a
+/// single `--debug` launch traces the whole stack:
+///   frontend log (via frontend_log cmd) -> Rust log -> sidecar RPC trace.
+fn init_logging(debug: bool) {
+    let level = if debug { LevelFilter::Debug } else { LevelFilter::Info };
+    if debug {
+        // Propagate to sidecar. Child process env is set at Command::spawn time.
+        std::env::set_var("OMNI_AGENT_VERBOSE", "1");
+    }
     let _ = TermLogger::init(
-        LevelFilter::Info,
+        level,
         ConfigBuilder::new().build(),
         TerminalMode::Stderr,
         ColorChoice::Never,
     );
+    log::info!("logging initialized at {level:?}");
 }
 
 // -----------------------------------------------------------------------------
@@ -205,7 +227,10 @@ fn init_logging() {
 // -----------------------------------------------------------------------------
 
 fn main() {
-    init_logging();
+    let debug = std::env::args().any(|a| a == "--debug" || a == "-v" || a == "--verbose")
+        || std::env::var("OMNI_AGENT_DEBUG").ok().as_deref() == Some("1");
+    init_logging(debug);
+    log::info!("omni-agent-desktop starting (debug={debug})");
     let shortcut_slot = ShortcutSlot::default();
 
     tauri::Builder::default()

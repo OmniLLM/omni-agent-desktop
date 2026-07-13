@@ -187,6 +187,15 @@ const LEGACY_TO_SIDECAR: Record<string, string> = {
   disconnect_copilot: "copilot.disconnect",
   list_copilot_models: "copilot.list_models",
   test_azure_connection: "azure.test_connection",
+  list_sessions: "sessions.list",
+  load_session: "sessions.load",
+  save_session: "sessions.save",
+  delete_session: "sessions.delete",
+  list_projects: "projects.list",
+  save_projects: "projects.save",
+  load_conversation: "conversation.load",
+  save_conversation: "conversation.save",
+  list_models: "models.list",
 };
 
 function isNativeCommand(cmd: string): boolean {

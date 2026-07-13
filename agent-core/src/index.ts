@@ -46,6 +46,16 @@ import {
   type ProviderConfig,
   type RunMode,
 } from "./settings.js";
+import {
+  deleteSession,
+  listProjects,
+  listSessions,
+  loadConversation,
+  loadSession,
+  saveConversation,
+  saveProjects,
+  saveSession,
+} from "./sessions.js";
 
 const server = new RpcServer();
 const PROTOCOL_VERSION = 1;
@@ -176,11 +186,56 @@ server.register("azure.test_connection", async (params) => {
   }
 });
 
+// --- sessions / projects / conversation ------------------------------------
+server.register("sessions.list", () => listSessions());
+server.register("sessions.load", (params) => {
+  const { id } = params as { id: string };
+  return loadSession(id);
+});
+server.register("sessions.save", (params) => {
+  const { id, messages, title } = params as { id: string; messages: unknown[]; title?: string };
+  saveSession(id, messages, title);
+  return { ok: true };
+});
+server.register("sessions.delete", (params) => {
+  const { id } = params as { id: string };
+  return { ok: deleteSession(id) };
+});
+server.register("projects.list", () => listProjects());
+server.register("projects.save", (params) => {
+  const { projects } = params as { projects: unknown[] };
+  saveProjects(projects);
+  return { ok: true };
+});
+server.register("conversation.load", () => loadConversation());
+server.register("conversation.save", (params) => {
+  saveConversation(params);
+  return { ok: true };
+});
+
+// list_models fallback: for the OpenAI-compatible endpoint just echo an empty
+// list; the frontend also allows manual typing. Full provider probing lives in
+// the individual provider modules if we later want to enumerate.
+server.register("models.list", () => ({ models: [] }));
+
 // --- A2A -------------------------------------------------------------------
 server.register("a2a.discover_card", async (params) => {
-  const { endpoint, token } = params as { endpoint: string; token: string };
+  // Accept either { connectionId } (legacy — frontend still uses this name)
+  // or { endpoint, token } (direct). Legacy resolves through saved settings.
+  const p = (params ?? {}) as { connectionId?: string; endpoint?: string; token?: string };
+  let endpoint = p.endpoint;
+  let token = p.token ?? "";
+  if (!endpoint && p.connectionId) {
+    const settings = loadSettings();
+    const conn = settings.a2a_connections.find((c) => c.id === p.connectionId);
+    if (!conn) throw new Error(`no a2a connection with id ${p.connectionId}`);
+    endpoint = conn.endpoint;
+    token = conn.token;
+  }
+  if (!endpoint) throw new Error("a2a.discover_card: endpoint or connectionId required");
+  process.stderr.write(`agent-core: a2a.discover_card endpoint=${endpoint}\n`);
   const card = await fetchCard(endpoint, token);
-  return { card };
+  return card; // Return the card directly (frontend reads card.skills).
 });
 
 // --- approvals -------------------------------------------------------------

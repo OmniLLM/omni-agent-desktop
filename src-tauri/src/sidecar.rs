@@ -93,6 +93,8 @@ impl Sidecar {
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
         let mut child = cmd.spawn()?;
+        let pid = child.id().unwrap_or(0);
+        log::info!("agent-core sidecar spawned (pid={pid})");
         let stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
 

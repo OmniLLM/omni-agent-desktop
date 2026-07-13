@@ -126,7 +126,77 @@ export function buildDelegateBody(tool: A2aTool, task: string): unknown {
   };
 }
 
-/** JSON-RPC message/send. Returns the text extracted from the reply parts. */
+/** A2A task states that cannot transition further (polling should stop). */
+const TERMINAL_STATES = new Set(["completed", "canceled", "failed", "input-required"]);
+
+interface A2aPart {
+  text?: unknown;
+  data?: unknown;
+}
+interface A2aMessage {
+  parts?: A2aPart[];
+}
+interface A2aTask {
+  id?: string;
+  status?: { state?: string; message?: A2aMessage };
+  artifacts?: Array<{ parts?: A2aPart[] }>;
+  history?: A2aMessage[];
+  message?: A2aMessage;
+}
+
+/** Concatenates the text/data of a parts array into a single string. */
+export function extractParts(parts: A2aPart[] | undefined): string {
+  return (parts ?? [])
+    .map((part) => {
+      if (typeof part.text === "string") return part.text;
+      if (part.data !== undefined) return JSON.stringify(part.data);
+      return "";
+    })
+    .join("");
+}
+
+/**
+ * Extracts the human-readable output from an A2A result, which may be either an
+ * immediate message reply or a Task. For a Task, the answer lives in
+ * `status.message.parts`, else in `artifacts[].parts`, else in the last
+ * `history` message — checked in that order.
+ */
+export function extractResultText(result: A2aTask | undefined): string {
+  if (!result) return "";
+  const direct = extractParts(result.message?.parts);
+  if (direct) return direct;
+  const statusMsg = extractParts(result.status?.message?.parts);
+  if (statusMsg) return statusMsg;
+  const artifacts = (result.artifacts ?? [])
+    .map((a) => extractParts(a.parts))
+    .filter(Boolean)
+    .join("\n");
+  if (artifacts) return artifacts;
+  const history = result.history ?? [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const t = extractParts(history[i]?.parts);
+    if (t) return t;
+  }
+  return "";
+}
+
+/** True once a Task result has reached a terminal state (or is not a Task). */
+export function isTerminalResult(result: A2aTask | undefined): boolean {
+  const state = result?.status?.state;
+  // A plain message reply (no task status) is already final.
+  if (!state) return true;
+  return TERMINAL_STATES.has(state);
+}
+
+/**
+ * JSON-RPC message/send, then poll tasks/get until the task is terminal.
+ *
+ * The hub is asynchronous: message/send returns a Task in state "working" with
+ * no output yet. Returning that empty reply makes the calling model see an
+ * empty result and retry the same skill forever with reworded prompts. So we
+ * poll tasks/get until the task reaches a terminal state, then extract the
+ * output. A failed task raises so the model gets a real error, not silence.
+ */
 export async function delegate(tool: A2aTool, args: Record<string, unknown>): Promise<string> {
   const task = typeof args.task === "string" ? args.task : JSON.stringify(args);
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -138,15 +208,62 @@ export async function delegate(tool: A2aTool, args: Record<string, unknown>): Pr
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(a2aHttpErrorMessage(r.status, tool));
-  const reply = (await r.json()) as { result?: { message?: { parts?: unknown[] } }; error?: { message?: string } };
+  const reply = (await r.json()) as { result?: A2aTask; error?: { message?: string } };
   if (reply.error) throw new Error(reply.error.message ?? "a2a error");
-  const parts = reply.result?.message?.parts ?? [];
-  return parts
-    .map((p) => {
-      const part = p as { text?: unknown; data?: unknown };
-      if (typeof part.text === "string") return part.text;
-      if (part.data !== undefined) return JSON.stringify(part.data);
-      return "";
-    })
-    .join("");
+
+  let result = reply.result;
+  const taskId = result?.id;
+
+  // Poll to completion when the hub handed back a non-terminal task.
+  if (taskId && !isTerminalResult(result)) {
+    result = await pollTask(tool, headers, taskId);
+  }
+
+  if (result?.status?.state === "failed") {
+    const msg = extractResultText(result) || "task failed";
+    throw new Error(`a2a task failed: ${msg}`);
+  }
+  if (result?.status?.state === "canceled") {
+    throw new Error("a2a task was canceled");
+  }
+  const text = extractResultText(result);
+  // A terminal task with no text means the skill produced nothing usable —
+  // surface it as an error rather than returning "" (which makes the calling
+  // model treat the tool as broken and retry it in a loop).
+  if (!text) throw new Error("a2a task completed without a text result");
+  return text;
+}
+
+const POLL_INTERVAL_MS = 1500;
+const POLL_TIMEOUT_MS = 120_000;
+
+/** Polls tasks/get until the task is terminal or the timeout elapses. */
+async function pollTask(
+  tool: A2aTool,
+  headers: Record<string, string>,
+  taskId: string,
+): Promise<A2aTask | undefined> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  let last: A2aTask | undefined;
+  while (Date.now() < deadline) {
+    await sleep(POLL_INTERVAL_MS);
+    const body = { jsonrpc: "2.0", id: Date.now(), method: "tasks/get", params: { id: taskId } };
+    const r = await fetch(tool.endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(a2aHttpErrorMessage(r.status, tool));
+    const reply = (await r.json()) as { result?: A2aTask; error?: { message?: string } };
+    if (reply.error) throw new Error(reply.error.message ?? "a2a error");
+    last = reply.result;
+    if (isTerminalResult(last)) return last;
+  }
+  throw new Error(
+    `a2a task ${taskId} did not complete within ${Math.round(POLL_TIMEOUT_MS / 1000)}s`,
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

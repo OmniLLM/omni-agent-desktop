@@ -31,6 +31,34 @@ node .claude/skills/a2a-live-e2e/scripts/run.mjs --binary "src-tauri/target/rele
 
 `--dry-run` retrieves and saves redacted cards, derives safe questions, and checks the app configuration without launching or invoking a skill.
 
+## Validate hub skills (headless, no UI)
+
+Before (or instead of) the full UI harness, run a fast protocol-level check that
+picks read-only skills from each enabled A2A connection's agent card and drives
+the **real** A2A path — `message/send`, then polls `tasks/get` until the task is
+terminal, then extracts the text result. This is the same async path
+`agent-core/src/a2a.ts::delegate` takes, so it directly catches regressions such
+as the async-task retry loop (a hub returns `state: "working"` with no parts; a
+naive client returns empty text and the model retries the skill forever).
+
+```powershell
+node .claude/skills/a2a-live-e2e/scripts/validate-skills.mjs
+node .claude/skills/a2a-live-e2e/scripts/validate-skills.mjs --skill unit_converter --max 1
+node .claude/skills/a2a-live-e2e/scripts/validate-skills.mjs --connection oah --max 5 --json
+```
+
+Options: `--connection`, `--skill` (filters), `--max` (skills per connection,
+default 5), `--timeout` (per-skill poll seconds, default 120), `--json`.
+
+A skill PASSes when the task reaches a terminal state (`completed`, or
+`input-required` treated as a valid clarifying response) and yields non-empty
+text. It FAILs on `failed`, an auth error, a poll timeout, or — the regression
+guard — a terminal task with empty text. Read-only selection uses the same SAFE/
+UNSAFE metadata rules as the UI runner; mutating/ambiguous skills are skipped and
+never invoked. Redacted cards and a `result.json` verdict are written under
+`.artifacts/a2a-validate-skills/<run-id>/`. Exit code: `0` all passed, `1` any
+failed, `2` nothing eligible to validate.
+
 ## Required workflow
 
 1. Run the discovery dry run first. Do not launch the app until at least one card was retrieved.

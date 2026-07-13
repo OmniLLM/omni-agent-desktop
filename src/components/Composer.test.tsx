@@ -21,8 +21,9 @@ function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
       "github-copilot": {
         endpoint: "",
         api_key: "",
+        api_key_stored: true,
         api_shape: "openai-compatible",
-        model: "",
+        model: "gpt-4o",
         manual_models: "",
       },
       "azure-foundry": {
@@ -96,7 +97,7 @@ describe("Composer", () => {
     await userEvent.click(
       screen.getByRole("option", { name: /github copilot/i }),
     );
-    expect(onModelChange).toHaveBeenCalledWith("github-copilot", "");
+    expect(onModelChange).toHaveBeenCalledWith("github-copilot", "gpt-4o");
   });
 
   it("filters models as you type in the picker", async () => {

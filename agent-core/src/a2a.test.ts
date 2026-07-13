@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import {
   a2aHttpErrorMessage,
   buildDelegateBody,
+  extractResultText,
+  isTerminalResult,
   makeToolName,
   toolsFromCard,
   type A2aTool,
@@ -88,6 +90,55 @@ describe("buildDelegateBody", () => {
       params: { metadata: { skill: string } };
     };
     expect(body.params.metadata.skill).toBe("skill");
+  });
+});
+
+describe("isTerminalResult", () => {
+  it("treats a plain message reply (no status) as final", () => {
+    expect(isTerminalResult({ message: { parts: [{ text: "hi" }] } })).toBe(true);
+  });
+
+  it("treats working/submitted as non-terminal", () => {
+    expect(isTerminalResult({ status: { state: "working" } })).toBe(false);
+    expect(isTerminalResult({ status: { state: "submitted" } })).toBe(false);
+  });
+
+  it("treats completed/failed/canceled/input-required as terminal", () => {
+    for (const state of ["completed", "failed", "canceled", "input-required"]) {
+      expect(isTerminalResult({ status: { state } })).toBe(true);
+    }
+  });
+});
+
+describe("extractResultText", () => {
+  it("reads a completed task's status.message.parts", () => {
+    const result = {
+      id: "t1",
+      status: { state: "completed", message: { parts: [{ text: "11,032 VMs" }] } },
+    };
+    expect(extractResultText(result)).toBe("11,032 VMs");
+  });
+
+  it("falls back to artifacts, then history", () => {
+    expect(
+      extractResultText({ status: { state: "completed" }, artifacts: [{ parts: [{ text: "art" }] }] }),
+    ).toBe("art");
+    expect(
+      extractResultText({
+        status: { state: "completed" },
+        history: [{ parts: [{ text: "old" }] }, { parts: [{ text: "latest" }] }],
+      }),
+    ).toBe("latest");
+  });
+
+  it("returns empty for a still-working task (the retry-loop trigger)", () => {
+    expect(extractResultText({ id: "t1", status: { state: "working" } })).toBe("");
+  });
+
+  it("serializes non-text data parts", () => {
+    expect(extractResultText({ message: { parts: [{ data: { count: 3 } }] } })).toBe(
+      '{"count":3}',
+    );
   });
 });
 

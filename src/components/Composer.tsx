@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../lib/runtime";
-import type { AppSettings, ProviderType } from "../types/app";
+import type {
+  AppSettings,
+  ProviderConfig,
+  ProviderType,
+} from "../types/app";
 
 interface Props {
   onSend: (text: string) => void;
@@ -16,6 +20,30 @@ const PROVIDER_LABELS: Record<ProviderType, string> = {
   "github-copilot": "GitHub Copilot",
   "azure-foundry": "Azure Foundry",
 };
+
+/**
+ * A provider is "configured" when its saved profile carries enough to route a
+ * request: the custom provider needs an inline endpoint + key, the protected
+ * providers (Copilot / Azure Foundry) surface a stored-credential flag or a
+ * selected model. Unconfigured providers are hidden from the composer picker.
+ */
+function isProviderConfigured(
+  provider: ProviderType,
+  cfg: ProviderConfig | undefined,
+): boolean {
+  if (!cfg) return false;
+  switch (provider) {
+    case "custom-provider":
+      return Boolean(cfg.endpoint?.trim() && cfg.api_key?.trim());
+    case "github-copilot":
+      return Boolean(cfg.api_key_stored || cfg.model?.trim());
+    case "azure-foundry":
+      return Boolean(
+        cfg.endpoint?.trim() &&
+          (cfg.api_key_stored || (cfg.azure_deployments?.length ?? 0) > 0),
+      );
+  }
+}
 
 export default function Composer({
   onSend,
@@ -35,6 +63,13 @@ export default function Composer({
   const activeProvider = settings?.active_provider ?? "custom-provider";
   const activeModel = settings?.ai_model ?? "";
   const activeConfig = settings?.provider_configs?.[activeProvider];
+
+  // Only providers with a usable saved profile appear in the picker.
+  const providerOptions = (
+    Object.keys(PROVIDER_LABELS) as ProviderType[]
+  ).filter((p) =>
+    isProviderConfigured(p, settings?.provider_configs?.[p]),
+  );
 
   const submit = () => {
     if (text.trim()) {
@@ -62,9 +97,13 @@ export default function Composer({
     };
   }, [open]);
 
-  // Fetch the model list for the active provider when the picker opens.
+  // Fetch the model list for the active provider when the picker opens or the
+  // provider changes. Clear the previous provider's models first so a switch
+  // never shows a stale list while the new one loads.
   useEffect(() => {
-    if (!open || !activeConfig) return;
+    if (!open) return;
+    setModels([]);
+    if (!activeConfig) return;
     let active = true;
     invoke<string[]>("list_models", {
       baseUrl: activeConfig.endpoint,
@@ -155,7 +194,7 @@ export default function Composer({
             {open ? (
               <div className="composer2__menu" role="listbox">
                 <div className="composer2__menu-group">Provider</div>
-                {(Object.keys(PROVIDER_LABELS) as ProviderType[]).map((p) => (
+                {providerOptions.map((p) => (
                   <button
                     key={p}
                     type="button"

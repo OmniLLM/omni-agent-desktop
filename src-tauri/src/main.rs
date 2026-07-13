@@ -229,8 +229,19 @@ fn init_logging(debug: bool) {
 fn main() {
     let debug = std::env::args().any(|a| a == "--debug" || a == "-v" || a == "--verbose")
         || std::env::var("OMNI_AGENT_DEBUG").ok().as_deref() == Some("1");
+    // Corporate TLS-inspection proxies re-sign upstream certs with a private CA
+    // that the sidecar's bundled trust store rejects ("self signed certificate
+    // in certificate chain"), breaking Copilot model discovery and any HTTPS
+    // provider. `--insecure-tls` (or OMNI_AGENT_INSECURE_TLS=1) tells the
+    // sidecar to relax verification. Set the env BEFORE the sidecar is spawned
+    // so it inherits it.
+    let insecure_tls = std::env::args().any(|a| a == "--insecure-tls")
+        || std::env::var("OMNI_AGENT_INSECURE_TLS").ok().as_deref() == Some("1");
+    if insecure_tls {
+        std::env::set_var("OMNI_AGENT_INSECURE_TLS", "1");
+    }
     init_logging(debug);
-    log::info!("omni-agent-desktop starting (debug={debug})");
+    log::info!("omni-agent-desktop starting (debug={debug}, insecure_tls={insecure_tls})");
     let shortcut_slot = ShortcutSlot::default();
 
     tauri::Builder::default()

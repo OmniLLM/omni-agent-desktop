@@ -107,11 +107,22 @@ export async function deleteSecret(key: string): Promise<void> {
   await getBackend().delete(key);
 }
 
-/** Move plaintext protected secrets into the secure store; clear plaintext. */
+/**
+ * Move plaintext protected secrets into the secure store; clear plaintext.
+ *
+ * IMPORTANT: `github-copilot.token` is deliberately NOT redacted here. That
+ * token is obtained and owned by the OAuth device flow (copilot-auth.ts) and is
+ * never entered through the settings form — the copilot ProviderConfig has no
+ * api_key. If redaction ran over it, a settings save (copilot api_key="" and
+ * api_key_stored=false) would hit the delete branch and wipe the freshly OAuth'd
+ * token. So redaction is limited to form-managed secrets (Azure only).
+ */
+const FORM_MANAGED_SECRET_PROVIDERS: ProviderType[] = ["azure-foundry"];
+
 export async function redactSecretsForPersist(settings: AppSettings): Promise<void> {
   const configs = settings.provider_configs;
   if (!configs) return;
-  for (const p of PROTECTED_PROVIDERS) {
+  for (const p of FORM_MANAGED_SECRET_PROVIDERS) {
     const key = secretKey(p);
     if (!key) continue;
     const cfg = configs[p];

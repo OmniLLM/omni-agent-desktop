@@ -1,0 +1,13 @@
+# Tauri externalBin drop-in for the compiled agent-core sidecar.
+#
+# `npm run build:bin` inside agent-core/ produces
+#   agent-core-<host-triple>[.exe]
+# and places it here. This directory is referenced by
+#   src-tauri/tauri.conf.json bundle.externalBin
+# and by Tauri's build script — the binary MUST exist before `cargo build`
+# even in a dev/check pass.
+#
+# `.gitignore` excludes the binaries themselves; only this README is tracked.
+*
+!.gitignore
+!README.md

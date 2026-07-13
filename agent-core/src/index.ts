@@ -6,19 +6,21 @@ import { RpcServer } from "./rpc.js";
 import { configDir, settingsPath } from "./paths.js";
 
 // Corporate TLS-inspection proxies (ZScaler, Blue Coat, etc.) re-sign upstream
-// certificates with a private root CA that Node/Bun's bundled trust store does
-// not know, producing "self signed certificate in certificate chain" on fetch
-// to api.githubcopilot.com and similar hosts. When OMNI_AGENT_INSECURE_TLS=1 is
-// set (propagated by the Rust shell under --insecure-tls / OMNI_AGENT_DEBUG),
-// relax certificate verification so those hosts are reachable. This is a
-// deliberate, logged, opt-in escape hatch — not the default.
+// certificates with a private root CA that the runtime's bundled trust store
+// does not know, producing "self signed certificate in certificate chain" on
+// fetch to api.githubcopilot.com and similar hosts. When OMNI_AGENT_INSECURE_TLS=1
+// is set (propagated by the Rust shell under --insecure-tls / OMNI_AGENT_DEBUG),
+// every HTTP call routed through ./http.ts injects a per-request
+// `tls.rejectUnauthorized=false` (the only mechanism Bun's native fetch honors).
+// We also set NODE_TLS_REJECT_UNAUTHORIZED for any Node-native TLS path.
 if (process.env.OMNI_AGENT_INSECURE_TLS === "1") {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
   process.stderr.write(
-    "agent-core: WARNING — TLS certificate verification DISABLED (OMNI_AGENT_INSECURE_TLS=1). " +
-      "Only use behind a trusted corporate proxy.\n",
+    "agent-core: WARNING — TLS certificate verification DISABLED " +
+      "(OMNI_AGENT_INSECURE_TLS=1). Only use behind a trusted corporate proxy.\n",
   );
 }
+import { httpFetch } from "./http.js";
 import {
   a2aToolDefinition,
   delegate,
@@ -224,7 +226,7 @@ server.register("azure.test_connection", async (params) => {
     const url = `${cfg.endpoint.replace(/\/+$/, "")}/openai/v1/models?api-version=${encodeURIComponent(
       cfg.azure_api_version || "2024-02-01",
     )}`;
-    const r = await (await import("undici")).fetch(url, {
+    const r = await httpFetch(url, {
       headers: { "api-key": cfg.api_key },
     });
     return { ok: r.ok, status: r.status };
@@ -265,7 +267,6 @@ server.register("conversation.save", (params) => {
 // so we accept baseUrl/apiKey directly (custom-provider draft), plus fall back
 // to the active custom-provider config when no args are given.
 server.register("models.list", async (params) => {
-  const { fetch } = await import("undici");
   const p = (params ?? {}) as { baseUrl?: string; apiKey?: string };
   let baseUrl = p.baseUrl;
   let apiKey = p.apiKey ?? "";
@@ -279,7 +280,7 @@ server.register("models.list", async (params) => {
   const endpoint = normalizeChatEndpoint(baseUrl);
   const url = `${endpoint}/models`;
   process.stderr.write(`agent-core: models.list ${url}\n`);
-  const r = await fetch(url, {
+  const r = await httpFetch(url, {
     headers: apiKey
       ? { authorization: `Bearer ${apiKey}`, accept: "application/json" }
       : { accept: "application/json" },

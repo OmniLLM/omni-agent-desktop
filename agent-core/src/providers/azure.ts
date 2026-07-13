@@ -3,7 +3,7 @@
  * `api-key` header instead of Bearer, and remaps model -> deployment before
  * emitting the request.
  */
-import { fetch } from "undici";
+import { httpFetch as fetch } from "../http.js";
 import type { ProviderConfig } from "../settings.js";
 import { buildMessages, parseChatCompletions } from "./chat-completions.js";
 import type { ParsedTurn, Provider } from "./types.js";

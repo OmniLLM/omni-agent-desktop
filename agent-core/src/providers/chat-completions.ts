@@ -3,7 +3,7 @@
  * routed to Claude Agent SDK / Codex SDK). Handles OpenAI-compatible custom
  * endpoints, plus serves as the shared building block for Azure and Copilot.
  */
-import { fetch } from "undici";
+import { httpFetch as fetch } from "../http.js";
 import type { ProviderConfig } from "../settings.js";
 import type { Msg, ParsedTurn, Provider, ToolCall } from "./types.js";
 

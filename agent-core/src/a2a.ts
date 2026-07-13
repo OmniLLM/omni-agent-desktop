@@ -3,7 +3,7 @@
  * Discovers remote agent cards, derives one callable tool per skill (namespaced
  * <conn>__<skill>, 64-char safe), and delegates via JSON-RPC message/send.
  */
-import { fetch } from "undici";
+import { httpFetch as fetch } from "./http.js";
 import type { A2aConnection } from "./settings.js";
 
 export interface A2aTool {

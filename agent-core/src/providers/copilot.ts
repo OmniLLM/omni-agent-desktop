@@ -7,7 +7,7 @@
  * how to refresh the short-lived token against a long-lived one, list models,
  * and issue an inference request against the Copilot chat endpoint.
  */
-import { fetch } from "undici";
+import { httpFetch as fetch } from "../http.js";
 import type { ProviderConfig } from "../settings.js";
 import { buildMessages, parseChatCompletions } from "./chat-completions.js";
 import type { ParsedTurn, Provider } from "./types.js";

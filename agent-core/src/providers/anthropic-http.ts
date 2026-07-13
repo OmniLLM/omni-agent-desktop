@@ -6,7 +6,7 @@
  * hard-codes some paths and spawns a `claude` binary, which is overkill for
  * this shape. This module just does `fetch()`.
  */
-import { fetch } from "undici";
+import { httpFetch as fetch } from "../http.js";
 import type { ProviderConfig } from "../settings.js";
 import type { Msg, ParsedTurn, Provider, ToolCall } from "./types.js";
 import { normalizeEndpoint } from "./chat-completions.js";

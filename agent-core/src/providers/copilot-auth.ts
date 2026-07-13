@@ -6,7 +6,7 @@
  * — NOT the raw GitHub API shape. This module owns the polling loop and the
  * in-memory auth state that `copilot.status` reads.
  */
-import { fetch } from "undici";
+import { httpFetch as fetch } from "../http.js";
 import { deleteSecret, getSecret, setSecret } from "../secrets.js";
 
 const CLIENT_ID = "Iv1.b507a08c87ecfe98"; // GitHub Copilot public client id

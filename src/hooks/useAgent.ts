@@ -91,6 +91,11 @@ export function useAgent(): UseAgentResult {
   );
   const cleanupRef = useRef<Array<() => void>>([]);
   const loadedRef = useRef(false);
+  // Set when messages are populated by loading an existing session (mount or
+  // switch) rather than by a live send. Suppresses the very next persist so
+  // that merely opening a session never rewrites its file (which would reorder
+  // the sidebar list, e.g. by backfilling created_at on legacy sessions).
+  const skipNextPersistRef = useRef(false);
   // The session that owns the in-flight run. Agent stream events carry the
   // session they originated from; the listeners drop any event whose session
   // does not match this, so switching chats mid-run never interleaves a run's
@@ -124,7 +129,10 @@ export function useAgent(): UseAgentResult {
         );
         const saved = extractSessionMessages(raw);
         setCurrentSessionId(id);
-        if (saved.length) setMessages(saved);
+        if (saved.length) {
+          skipNextPersistRef.current = true;
+          setMessages(saved);
+        }
       } else {
         setCurrentSessionId(newSessionId());
       }
@@ -136,6 +144,12 @@ export function useAgent(): UseAgentResult {
   useEffect(() => {
     if (!loadedRef.current || !currentSessionId) return;
     if (messages.length === 0) return; // don't write empty sessions
+    if (skipNextPersistRef.current) {
+      // Messages were populated by opening an existing session, not by a live
+      // send. Don't re-persist: rewriting the file would reorder the sidebar.
+      skipNextPersistRef.current = false;
+      return;
+    }
     invoke("save_session", {
       id: currentSessionId,
       messages,
@@ -343,7 +357,10 @@ export function useAgent(): UseAgentResult {
       () => null,
     );
     setCurrentSessionId(id);
-    setMessages(extractSessionMessages(raw));
+    const loaded = extractSessionMessages(raw);
+    // Opening a session must not re-persist it (which would reorder the list).
+    if (loaded.length) skipNextPersistRef.current = true;
+    setMessages(loaded);
     setPendingApproval(null);
     setLoading(false);
   }, []);

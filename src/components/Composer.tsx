@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { invoke } from "../lib/runtime";
 import SlashMenu from "./SlashMenu";
 import {
@@ -25,6 +25,13 @@ interface Props {
   /** Runtime surface for slash commands. When omitted, `/…` text is sent
    * verbatim (no command handling), preserving the plain composer behavior. */
   slash?: SlashContext;
+  /** When true, a run is active — the send button turns into a cancel button
+   * that calls `onCancel` instead of submitting. */
+  loading?: boolean;
+  onCancel?: () => void;
+  /** Programmatically set the composer's text (e.g. from the help panel picking
+   * an argument command). Exposed via a ref so parents can drive the input. */
+  composerRef?: React.RefObject<{ setText: (text: string) => void } | null>;
 }
 
 /** The leading-slash query is active only when the whole input is a single
@@ -74,6 +81,9 @@ export default function Composer({
   approveForMe = false,
   onToggleApprove,
   slash,
+  loading = false,
+  onCancel,
+  composerRef,
 }: Props) {
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
@@ -103,6 +113,35 @@ export default function Composer({
         : Math.min(i, slashMatches.length - 1),
     );
   }, [slashMatches.length]);
+
+  // Auto-grow the textarea to fit its content so multi-line input is fully
+  // visible without the top lines scrolling out of view. The CSS `max-height`
+  // still caps the growth and re-enables the scrollbar for very long input.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
+
+  // Expose a minimal imperative API so the parent can prefill the composer
+  // (e.g. clicking an argument command in the help panel).
+  useImperativeHandle(
+    composerRef,
+    () => ({
+      setText: (next: string) => {
+        setText(next);
+        // Focus + move caret to end so the user can start typing the argument.
+        requestAnimationFrame(() => {
+          const el = textareaRef.current;
+          if (!el) return;
+          el.focus();
+          el.setSelectionRange(next.length, next.length);
+        });
+      },
+    }),
+    [],
+  );
 
   const activeProvider = settings?.active_provider ?? "custom-provider";
   const activeModel = settings?.ai_model ?? "";
@@ -411,15 +450,27 @@ export default function Composer({
             ) : null}
           </div>
 
-          <button
-            type="button"
-            className="composer2__send"
-            aria-label="Send"
-            onClick={submit}
-            disabled={disabled}
-          >
-            ↑
-          </button>
+          {loading && onCancel ? (
+            <button
+              type="button"
+              className="composer2__send composer2__cancel"
+              aria-label="Cancel run"
+              title="Stop the running task"
+              onClick={onCancel}
+            >
+              ■
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="composer2__send"
+              aria-label="Send"
+              onClick={submit}
+              disabled={disabled}
+            >
+              ↑
+            </button>
+          )}
         </div>
       </div>
       <p className="composer2__disclaimer">

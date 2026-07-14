@@ -14,7 +14,7 @@ import AppShell from "./components/AppShell";
 import { useAgent } from "./hooks/useAgent";
 import { useTheme } from "./hooks/useTheme";
 import type { AppSettings, ProviderType, RunMode } from "./types/app";
-import type { SlashContext } from "./lib/slashCommands";
+import type { SlashContext, SlashCommand } from "./lib/slashCommands";
 import { applyWindowSize, normalizeWindowSize } from "./lib/windowSize";
 import { parseThemeMode } from "./utils/theme";
 
@@ -55,6 +55,7 @@ export default function App() {
   const settingsCloseRef = useRef<(() => Promise<void>) | null>(null);
   const showSettingsRef = useRef(false);
   const showHelpRef = useRef(false);
+  const composerRef = useRef<{ setText: (text: string) => void } | null>(null);
 
   useEffect(() => {
     showSettingsRef.current = showSettings;
@@ -217,7 +218,28 @@ export default function App() {
           </div>
         ) : null}
 
-        {showHelp ? <HelpPanel onClose={() => setShowHelp(false)} /> : null}
+        {showHelp ? (
+          <HelpPanel
+            onClose={() => setShowHelp(false)}
+            onPick={(cmd: SlashCommand) => {
+              setShowHelp(false);
+              // Argument commands need input from the user, so prefill the
+              // composer and let them finish typing. All other commands run
+              // immediately via the shared slash-context handlers.
+              if (cmd.kind === "argument") {
+                composerRef.current?.setText(`/${cmd.name} `);
+                return;
+              }
+              const ctx: SlashContext = {
+                ...slashContext,
+                openModelMenu: () => {
+                  /* handled inside the composer; not reachable from help */
+                },
+              };
+              void cmd.run(ctx, "");
+            }}
+          />
+        ) : null}
 
         <div
           className={`workspace${collapsed ? " workspace--collapsed" : ""}`}
@@ -272,6 +294,9 @@ export default function App() {
                   approveForMe={approveForMe}
                   onToggleApprove={setApproveForMe}
                   slash={slashContext}
+                  loading={loading}
+                  onCancel={stop}
+                  composerRef={composerRef}
                 />
               </>
             ) : (

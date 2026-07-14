@@ -494,6 +494,16 @@
   box-shadow: none;
 }
 
+.composer2__cancel {
+  background: var(--danger, #d9534f);
+  color: #fff;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--danger, #d9534f) 30%, transparent);
+}
+
+.composer2__cancel:hover {
+  filter: brightness(1.1);
+}
+
 .composer2__toggle {
   display: inline-flex;
   align-items: center;

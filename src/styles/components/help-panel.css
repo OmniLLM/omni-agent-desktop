@@ -68,10 +68,19 @@
   gap: 2px;
   padding: 8px 10px;
   border-radius: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 
-.help-panel__row:hover {
+.help-panel__row:hover,
+.help-panel__row:focus-visible {
   background: var(--surface);
+  outline: none;
 }
 
 .help-panel__cmd {

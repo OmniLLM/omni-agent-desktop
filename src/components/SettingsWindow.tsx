@@ -14,7 +14,14 @@ import { validateProviderDraft } from "../lib/providerValidation";
 import {
   applyWindowSize,
   normalizeWindowSize,
+  normalizeCustomDimension,
   WINDOW_SIZE_OPTIONS,
+  CUSTOM_WINDOW_MIN_WIDTH,
+  CUSTOM_WINDOW_MIN_HEIGHT,
+  CUSTOM_WINDOW_MAX_WIDTH,
+  CUSTOM_WINDOW_MAX_HEIGHT,
+  DEFAULT_CUSTOM_WINDOW_WIDTH,
+  DEFAULT_CUSTOM_WINDOW_HEIGHT,
 } from "../lib/windowSize";
 import {
   isSafeBackgroundUrl,
@@ -194,7 +201,11 @@ export default function SettingsWindow({
   // Runtime image-load failure: the URL is well-formed & safe but the browser
   // could not fetch/decode the image. We warn without discarding the draft.
   const [bgLoadError, setBgLoadError] = useState(false);
-  const savedWindowSizeRef = useRef<WindowSizePreset>("standard");
+  const savedWindowSizeRef = useRef<{
+    preset: WindowSizePreset;
+    customWidth?: number;
+    customHeight?: number;
+  }>({ preset: "standard" });
   /** The background URL that is currently persisted on disk. Used to restore
    *  the host's live preview when the user cancels or a save fails. */
   const savedBackgroundRef = useRef<string>("");
@@ -223,7 +234,11 @@ export default function SettingsWindow({
       .then((s) => {
         const preset = normalizeWindowSize(s.window_size);
         s.window_size = preset;
-        savedWindowSizeRef.current = preset;
+        savedWindowSizeRef.current = {
+          preset,
+          customWidth: s.window_size_custom_width,
+          customHeight: s.window_size_custom_height,
+        };
         savedBackgroundRef.current = s.background_url ?? "";
         // Seed provider selection + per-provider drafts from loaded settings.
         const loadedActive = s.active_provider ?? "custom-provider";
@@ -375,7 +390,11 @@ export default function SettingsWindow({
     };
     try {
       await invoke("save_settings_cmd", { settings: settingsToSave });
-      savedWindowSizeRef.current = normalizeWindowSize(settings.window_size);
+      savedWindowSizeRef.current = {
+        preset: normalizeWindowSize(settings.window_size),
+        customWidth: settings.window_size_custom_width,
+        customHeight: settings.window_size_custom_height,
+      };
       savedBackgroundRef.current = settings.background_url ?? "";
       setSaveStatus("success");
       saveStatusTimerRef.current = setTimeout(() => {
@@ -392,11 +411,39 @@ export default function SettingsWindow({
     }
   };
 
-  const previewWindowSize = async (preset: WindowSizePreset) => {
+  const previewWindowSize = async (
+    preset: WindowSizePreset,
+    overrides?: { customWidth?: number; customHeight?: number },
+  ) => {
     setWindowSizeError("");
     try {
-      await applyWindowSize(preset);
-      setSettings((current) => current && { ...current, window_size: preset });
+      const nextWidth =
+        overrides?.customWidth ??
+        settings?.window_size_custom_width ??
+        DEFAULT_CUSTOM_WINDOW_WIDTH;
+      const nextHeight =
+        overrides?.customHeight ??
+        settings?.window_size_custom_height ??
+        DEFAULT_CUSTOM_WINDOW_HEIGHT;
+      await applyWindowSize(preset, {
+        customWidth: nextWidth,
+        customHeight: nextHeight,
+      });
+      setSettings(
+        (current) =>
+          current && {
+            ...current,
+            window_size: preset,
+            window_size_custom_width:
+              preset === "custom" || current.window_size_custom_width !== undefined
+                ? nextWidth
+                : current.window_size_custom_width,
+            window_size_custom_height:
+              preset === "custom" || current.window_size_custom_height !== undefined
+                ? nextHeight
+                : current.window_size_custom_height,
+          },
+      );
     } catch (error) {
       setWindowSizeError(
         error instanceof Error ? error.message : String(error),
@@ -428,8 +475,18 @@ export default function SettingsWindow({
   };
 
   const closeSettings = async () => {
-    if (settings && settings.window_size !== savedWindowSizeRef.current) {
-      await applyWindowSize(savedWindowSizeRef.current).catch((error) => {
+    const saved = savedWindowSizeRef.current;
+    const draftChanged =
+      settings &&
+      (settings.window_size !== saved.preset ||
+        (saved.preset === "custom" &&
+          (settings.window_size_custom_width !== saved.customWidth ||
+            settings.window_size_custom_height !== saved.customHeight)));
+    if (draftChanged) {
+      await applyWindowSize(saved.preset, {
+        customWidth: saved.customWidth,
+        customHeight: saved.customHeight,
+      }).catch((error) => {
         console.error("Failed to restore window size:", error);
       });
     }
@@ -980,7 +1037,104 @@ export default function SettingsWindow({
                             </span>
                           </label>
                         ))}
+                        <label className="window-size-option">
+                          <input
+                            type="radio"
+                            name="window-size"
+                            value="custom"
+                            checked={settings.window_size === "custom"}
+                            onChange={() => previewWindowSize("custom")}
+                          />
+                          <span>
+                            <strong>Custom</strong>
+                            <small>
+                              {settings.window_size_custom_width ??
+                                DEFAULT_CUSTOM_WINDOW_WIDTH}{" "}
+                              ×{" "}
+                              {settings.window_size_custom_height ??
+                                DEFAULT_CUSTOM_WINDOW_HEIGHT}
+                            </small>
+                          </span>
+                        </label>
                       </div>
+                      {settings.window_size === "custom" ? (
+                        <div className="window-size-custom-inputs">
+                          <label className="window-size-custom-field">
+                            <span>Width</span>
+                            <input
+                              type="number"
+                              className="omni-input"
+                              min={CUSTOM_WINDOW_MIN_WIDTH}
+                              max={CUSTOM_WINDOW_MAX_WIDTH}
+                              step={1}
+                              value={
+                                settings.window_size_custom_width ??
+                                DEFAULT_CUSTOM_WINDOW_WIDTH
+                              }
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                setSettings(
+                                  (current) =>
+                                    current && {
+                                      ...current,
+                                      window_size_custom_width:
+                                        raw === "" ? undefined : Number(raw),
+                                    },
+                                );
+                              }}
+                              onBlur={(e) => {
+                                const next = normalizeCustomDimension(
+                                  e.target.value,
+                                  "width",
+                                );
+                                void previewWindowSize("custom", {
+                                  customWidth: next,
+                                });
+                              }}
+                            />
+                          </label>
+                          <span className="window-size-custom-x">×</span>
+                          <label className="window-size-custom-field">
+                            <span>Height</span>
+                            <input
+                              type="number"
+                              className="omni-input"
+                              min={CUSTOM_WINDOW_MIN_HEIGHT}
+                              max={CUSTOM_WINDOW_MAX_HEIGHT}
+                              step={1}
+                              value={
+                                settings.window_size_custom_height ??
+                                DEFAULT_CUSTOM_WINDOW_HEIGHT
+                              }
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                setSettings(
+                                  (current) =>
+                                    current && {
+                                      ...current,
+                                      window_size_custom_height:
+                                        raw === "" ? undefined : Number(raw),
+                                    },
+                                );
+                              }}
+                              onBlur={(e) => {
+                                const next = normalizeCustomDimension(
+                                  e.target.value,
+                                  "height",
+                                );
+                                void previewWindowSize("custom", {
+                                  customHeight: next,
+                                });
+                              }}
+                            />
+                          </label>
+                          <small className="window-size-custom-hint">
+                            {CUSTOM_WINDOW_MIN_WIDTH}–{CUSTOM_WINDOW_MAX_WIDTH}{" "}
+                            × {CUSTOM_WINDOW_MIN_HEIGHT}–
+                            {CUSTOM_WINDOW_MAX_HEIGHT}
+                          </small>
+                        </div>
+                      ) : null}
                       {windowSizeError ? (
                         <span role="alert" className="window-size-error">
                           {windowSizeError}

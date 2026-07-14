@@ -83,7 +83,7 @@ export type ApiShape =
   | "anthropic-messages"
   | "openai-responses";
 
-export type WindowSizePreset = "compact" | "standard" | "large";
+export type WindowSizePreset = "compact" | "standard" | "large" | "custom";
 
 /** Public, frontend-safe GitHub Copilot authentication status. Mirrors the
  * Rust `CopilotAuthStatus` (serde tag = "state"). Never carries a token. */
@@ -172,5 +172,9 @@ export interface AppSettings {
   backend_url: string;
   /** Persisted window size preset applied at startup and via Preferences. */
   window_size: WindowSizePreset;
+  /** Custom window width in logical pixels; used when `window_size === "custom"`. */
+  window_size_custom_width?: number;
+  /** Custom window height in logical pixels; used when `window_size === "custom"`. */
+  window_size_custom_height?: number;
 }
 

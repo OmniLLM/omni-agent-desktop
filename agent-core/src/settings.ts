@@ -15,7 +15,7 @@ export const PROVIDER_TYPES: ProviderType[] = [
 ];
 
 export type ApiShape = "openai-compatible" | "anthropic-messages" | "openai-responses";
-export type WindowSizePreset = "compact" | "standard" | "large";
+export type WindowSizePreset = "compact" | "standard" | "large" | "custom";
 export type RunMode = "ask" | "plan" | "autopilot";
 
 export interface AzureDeploymentMapping {
@@ -62,6 +62,8 @@ export interface AppSettings {
   run_mode: RunMode;
   backend_url: string;
   window_size: WindowSizePreset;
+  window_size_custom_width?: number;
+  window_size_custom_height?: number;
 }
 
 export function defaultProviderConfig(): ProviderConfig {
@@ -131,8 +133,22 @@ function fillDefaults(raw: Partial<AppSettings>): AppSettings {
     }
   }
   // Normalize unknown window-size preset.
-  if (!(["compact", "standard", "large"] as const).includes(merged.window_size)) {
+  if (!(["compact", "standard", "large", "custom"] as const).includes(merged.window_size)) {
     merged.window_size = "standard";
+  }
+  // Sanitize custom-size dimensions (missing values are allowed; the frontend
+  // fills defaults on first Custom selection).
+  if (merged.window_size_custom_width !== undefined) {
+    const n = Number(merged.window_size_custom_width);
+    merged.window_size_custom_width = Number.isFinite(n)
+      ? Math.min(7680, Math.max(480, Math.floor(n)))
+      : undefined;
+  }
+  if (merged.window_size_custom_height !== undefined) {
+    const n = Number(merged.window_size_custom_height);
+    merged.window_size_custom_height = Number.isFinite(n)
+      ? Math.min(4320, Math.max(360, Math.floor(n)))
+      : undefined;
   }
   return merged;
 }

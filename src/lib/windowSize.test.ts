@@ -34,11 +34,31 @@ describe("windowSize", () => {
     expect(normalizeWindowSize(undefined)).toBe("standard");
   });
 
+  it("passes through custom preset", () => {
+    expect(normalizeWindowSize("custom")).toBe("custom");
+  });
+
   it("applies the selected logical size", async () => {
     const win = currentWindow();
     await applyWindowSize("compact");
     expect(win.setSize).toHaveBeenCalledWith(
       expect.objectContaining({ width: 720, height: 520 }),
+    );
+  });
+
+  it("applies a custom width and height", async () => {
+    const win = currentWindow();
+    await applyWindowSize("custom", { customWidth: 1280, customHeight: 768 });
+    expect(win.setSize).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 1280, height: 768 }),
+    );
+  });
+
+  it("clamps a custom size to the allowed bounds", async () => {
+    const win = currentWindow();
+    await applyWindowSize("custom", { customWidth: 10, customHeight: 10 });
+    expect(win.setSize).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 480, height: 360 }),
     );
   });
 

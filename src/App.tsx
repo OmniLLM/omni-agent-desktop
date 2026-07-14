@@ -79,7 +79,10 @@ export default function App() {
         const preset = normalizeWindowSize(s?.window_size);
         setSettings({ ...s, window_size: preset });
         if (s?.theme) setTheme(parseThemeMode(s.theme));
-        void applyWindowSize(preset).catch((error) => {
+        void applyWindowSize(preset, {
+          customWidth: s?.window_size_custom_width,
+          customHeight: s?.window_size_custom_height,
+        }).catch((error) => {
           console.error("Failed to apply saved window size:", error);
         });
       })

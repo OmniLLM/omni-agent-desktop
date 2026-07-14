@@ -19,7 +19,17 @@ export interface ParsedTurn {
   tool_calls: ToolCall[];
 }
 
-/** A provider that can execute one inference turn. */
+/** A provider that can execute one inference turn.
+ *
+ * `signal` (optional) propagates per-session cancellation: when the caller
+ * aborts it, the provider's underlying fetch is aborted and the resulting
+ * error should be surfaced as a cancellation (see run.ts `isAbortError`),
+ * not an ordinary provider failure. */
 export interface Provider {
-  infer(system: string, messages: Msg[], tools: unknown[]): Promise<ParsedTurn>;
+  infer(
+    system: string,
+    messages: Msg[],
+    tools: unknown[],
+    signal?: AbortSignal,
+  ): Promise<ParsedTurn>;
 }

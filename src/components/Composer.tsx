@@ -1,5 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../lib/runtime";
+import SlashMenu from "./SlashMenu";
+import {
+  filterCommands,
+  matchCommand,
+  parseSlashInput,
+  type SlashCommand,
+  type SlashContext,
+} from "../lib/slashCommands";
 import type {
   AppSettings,
   CopilotModel,
@@ -14,6 +22,18 @@ interface Props {
   onModelChange?: (provider: ProviderType, model: string) => void;
   approveForMe?: boolean;
   onToggleApprove?: (value: boolean) => void;
+  /** Runtime surface for slash commands. When omitted, `/…` text is sent
+   * verbatim (no command handling), preserving the plain composer behavior. */
+  slash?: SlashContext;
+}
+
+/** The leading-slash query is active only when the whole input is a single
+ * `/word` token with no whitespace yet — once the user types a space they are
+ * writing an argument, so the autocomplete menu closes. Returns the query text
+ * after the slash, or null when the menu should not be open. */
+function slashQuery(text: string): string | null {
+  const parsed = parseSlashInput(text);
+  return parsed && !parsed.hasArgument ? parsed.token : null;
 }
 
 const PROVIDER_LABELS: Record<ProviderType, string> = {
@@ -53,6 +73,7 @@ export default function Composer({
   onModelChange,
   approveForMe = false,
   onToggleApprove,
+  slash,
 }: Props) {
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
@@ -60,6 +81,28 @@ export default function Composer({
   const [filter, setFilter] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Slash-command autocomplete state. Independent from the model picker
+  // (`open`); the two menus are mutually exclusive (opening the slash menu is
+  // driven purely by the textarea contents, and the picker is a separate popover
+  // that is not shown while typing a `/…` command).
+  const [slashActive, setSlashActive] = useState(0);
+  const query = slash ? slashQuery(text) : null;
+  const slashOpen = query !== null;
+  const slashMatches = useMemo(
+    () => (query !== null ? filterCommands(query) : []),
+    [query],
+  );
+
+  // Keep the highlighted index in range as the filtered list changes.
+  useEffect(() => {
+    setSlashActive((i) =>
+      slashMatches.length === 0
+        ? 0
+        : Math.min(i, slashMatches.length - 1),
+    );
+  }, [slashMatches.length]);
 
   const activeProvider = settings?.active_provider ?? "custom-provider";
   const activeModel = settings?.ai_model ?? "";
@@ -72,11 +115,48 @@ export default function Composer({
     isProviderConfigured(p, settings?.provider_configs?.[p]),
   );
 
+  // Run a resolved slash command and clear the composer. Model-picker commands
+  // (`openModelMenu`) bridge to this component's own picker state.
+  const runCommand = (cmd: SlashCommand, arg: string) => {
+    if (!slash) return;
+    if (cmd.enabled && !cmd.enabled(slash)) return;
+    const ctx: SlashContext = {
+      ...slash,
+      openModelMenu: () => setOpen(true),
+    };
+    void cmd.run(ctx, arg);
+    setText("");
+    setSlashActive(0);
+  };
+
   const submit = () => {
-    if (text.trim()) {
-      onSend(text);
-      setText("");
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    // Intercept recognized slash commands before they reach the model. Unknown
+    // `/foo` falls through to a normal send (matchCommand returns null).
+    if (slash) {
+      const matched = matchCommand(trimmed);
+      if (matched) {
+        runCommand(matched.cmd, matched.arg);
+        return;
+      }
     }
+    onSend(text);
+    setText("");
+  };
+
+  // Pick the highlighted command from the autocomplete menu. If the command
+  // takes an argument, complete the text to `/name ` and keep typing rather
+  // than firing immediately; otherwise run it now.
+  const pickSlash = (cmd: SlashCommand) => {
+    if (!slash) return;
+    if (cmd.kind === "argument") {
+      setText(`/${cmd.name} `);
+      setSlashActive(0);
+      textareaRef.current?.focus();
+      return;
+    }
+    runCommand(cmd, "");
   };
 
   // Close the picker on outside click / Escape.
@@ -174,11 +254,53 @@ export default function Composer({
   return (
     <div className="composer2">
       <div className="composer2__box">
+        {slashOpen ? (
+          <SlashMenu
+            commands={slashMatches}
+            activeIndex={slashActive}
+            idPrefix="slash-opt"
+            onHover={setSlashActive}
+            onPick={pickSlash}
+          />
+        ) : null}
         <textarea
+          ref={textareaRef}
           className="composer2__input"
           value={text}
           onChange={(e) => setText(e.target.value)}
+          aria-expanded={slashOpen}
+          aria-controls="slash-menu"
+          aria-autocomplete="list"
+          aria-activedescendant={
+            slashOpen && slashMatches.length > 0
+              ? `slash-opt-${slashActive}`
+              : undefined
+          }
           onKeyDown={(e) => {
+            if (slashOpen && slashMatches.length > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setSlashActive((i) => (i + 1) % slashMatches.length);
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setSlashActive(
+                  (i) => (i - 1 + slashMatches.length) % slashMatches.length,
+                );
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setText("");
+                return;
+              }
+              if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+                e.preventDefault();
+                pickSlash(slashMatches[slashActive]);
+                return;
+              }
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               submit();

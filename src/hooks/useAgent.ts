@@ -18,6 +18,19 @@ export interface UseAgentResult {
   newSession: () => void;
   switchSession: (id: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
+  /** Persistently set a human-chosen title for a session. The manual title
+   * survives subsequent auto-persistence (it is not overwritten by the derived
+   * first-turn title) and is restored when the session is re-opened. */
+  renameSession: (id: string, title: string) => Promise<void>;
+  /** Cancel the in-flight run for the active session. Invokes `agent_cancel`
+   * for the run's session and returns the UI to an idle state. No-op when no
+   * run is active. */
+  stop: () => Promise<void>;
+  /** Durably compact the active session's transcript: collapse older turns into
+   * a single provider-neutral summary while preserving the most recent turns.
+   * Invokes `agent_compact` to persist the compaction; on failure the full
+   * transcript is left intact (no silent truncation) and the error is surfaced. */
+  compact: () => Promise<void>;
 }
 
 interface ToolResultEvent {
@@ -70,11 +83,57 @@ function extractSessionMessages(raw: unknown): ChatMessage[] {
   return Array.isArray(messages) ? (messages as ChatMessage[]) : [];
 }
 
+/** Read the persisted title from a `load_session` record, if any. Bare-array
+ * results (legacy/mock) carry no title, so return undefined for those. */
+function extractSessionTitle(raw: unknown): string | undefined {
+  if (Array.isArray(raw) || !raw || typeof raw !== "object") return undefined;
+  const title = (raw as { title?: unknown }).title;
+  return typeof title === "string" && title.trim() ? title : undefined;
+}
+
 /** Only user/assistant turns form the conversation context sent to the model. */
 function conversationHistory(messages: ChatMessage[]): ChatMessage[] {
   return messages.filter(
     (m) => m.role === "user" || m.role === "assistant",
   );
+}
+
+/** Stable marker identifying the durable summary turn produced by `compact`.
+ * Prefixing (rather than adding a new field) keeps the compacted turn a plain
+ * `ChatMessage`, so it round-trips through persistence and provider history
+ * unchanged and is recognizable on reload. */
+export const COMPACT_SUMMARY_MARKER = "⟦compacted summary⟧";
+
+/** Number of most-recent user/assistant turns kept verbatim by `compact`. */
+export const COMPACT_KEEP_RECENT = 6;
+
+/** Inputs for provider-backed compaction. Older turns are summarized by the
+ * active provider; recent turns remain verbatim. */
+interface CompactionPlan {
+  older: ChatMessage[];
+  recent: ChatMessage[];
+}
+
+function planCompaction(
+  messages: ChatMessage[],
+  keepRecent: number = COMPACT_KEEP_RECENT,
+): CompactionPlan | null {
+  const conversation = conversationHistory(messages);
+  if (conversation.length <= keepRecent + 1) return null;
+  return {
+    older: conversation.slice(0, conversation.length - keepRecent),
+    recent: conversation.slice(conversation.length - keepRecent),
+  };
+}
+
+function compactedTranscript(
+  summary: string,
+  recent: ChatMessage[],
+): ChatMessage[] {
+  const content = summary.startsWith(COMPACT_SUMMARY_MARKER)
+    ? summary
+    : `${COMPACT_SUMMARY_MARKER}\n${summary.trim()}`;
+  return [{ role: "assistant", content }, ...recent];
 }
 
 export function useAgent(): UseAgentResult {
@@ -105,6 +164,11 @@ export function useAgent(): UseAgentResult {
   // Snapshot of messages sent with the in-flight run, so history for the model
   // reflects the conversation up to (and including) the current question.
   const historyRef = useRef<ChatMessage[]>([]);
+  // Manual, human-chosen titles per session id. When present, auto-persistence
+  // uses this instead of the derived first-turn title so a rename is never
+  // silently overwritten. Seeded from `list_sessions` so a manual title set in
+  // a prior run is honored again after reload, and updated on load/rename.
+  const manualTitlesRef = useRef<Map<string, string>>(new Map());
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -114,6 +178,33 @@ export function useAgent(): UseAgentResult {
       // non-fatal
     }
   }, []);
+
+  // Track whether a session's persisted title is a human override. A stored
+  // title that differs from what the transcript would derive is treated as
+  // manual, so it is preserved across auto-persists and restored on reload.
+  const recordManualTitle = useCallback(
+    (id: string, storedTitle: string | undefined, msgs: ChatMessage[]) => {
+      if (storedTitle && storedTitle !== deriveSessionTitle(msgs)) {
+        manualTitlesRef.current.set(id, storedTitle);
+      } else {
+        manualTitlesRef.current.delete(id);
+      }
+    },
+    [],
+  );
+
+  const persistSession = useCallback(
+    async (id: string, transcript: ChatMessage[]) => {
+      await invoke("save_session", {
+        id,
+        messages: transcript,
+        title:
+          manualTitlesRef.current.get(id) ?? deriveSessionTitle(transcript),
+      });
+      await refreshSessions();
+    },
+    [refreshSessions],
+  );
 
   // On mount, adopt the most recent session (or start a fresh one).
   useEffect(() => {
@@ -129,6 +220,7 @@ export function useAgent(): UseAgentResult {
         );
         const saved = extractSessionMessages(raw);
         setCurrentSessionId(id);
+        recordManualTitle(id, extractSessionTitle(raw), saved);
         if (saved.length) {
           skipNextPersistRef.current = true;
           setMessages(saved);
@@ -150,14 +242,8 @@ export function useAgent(): UseAgentResult {
       skipNextPersistRef.current = false;
       return;
     }
-    invoke("save_session", {
-      id: currentSessionId,
-      messages,
-      title: deriveSessionTitle(messages),
-    })
-      .then(() => refreshSessions())
-      .catch(() => {});
-  }, [messages, currentSessionId, refreshSessions]);
+    void persistSession(currentSessionId, messages).catch(() => {});
+  }, [messages, currentSessionId, persistSession]);
 
   useEffect(() => {
     let active = true;
@@ -198,6 +284,14 @@ export function useAgent(): UseAgentResult {
             ...prev,
             { role: "assistant", content: text },
           ]);
+          setLoading(false);
+          setPendingApproval(null);
+          activeRunSessionRef.current = null;
+        }),
+      );
+      un.push(
+        await listen<unknown>("agent://cancelled", (e) => {
+          if (!isForActiveSession(e.payload)) return;
           setLoading(false);
           setPendingApproval(null);
           activeRunSessionRef.current = null;
@@ -300,7 +394,7 @@ export function useAgent(): UseAgentResult {
 
   const send = useCallback(
     async (text: string, mode: RunMode = "ask") => {
-      if (!text.trim()) return;
+      if (!text.trim() || activeRunSessionRef.current) return;
       // History is the prior conversation, before this new question.
       const history = conversationHistory(messages);
       historyRef.current = history;
@@ -358,12 +452,13 @@ export function useAgent(): UseAgentResult {
     );
     setCurrentSessionId(id);
     const loaded = extractSessionMessages(raw);
+    recordManualTitle(id, extractSessionTitle(raw), loaded);
     // Opening a session must not re-persist it (which would reorder the list).
     if (loaded.length) skipNextPersistRef.current = true;
     setMessages(loaded);
     setPendingApproval(null);
     setLoading(false);
-  }, []);
+  }, [recordManualTitle]);
 
   const deleteSession = useCallback(
     async (id: string) => {
@@ -380,6 +475,74 @@ export function useAgent(): UseAgentResult {
     [currentSessionId, refreshSessions],
   );
 
+  const renameSession = useCallback(
+    async (id: string, title: string) => {
+      const trimmed = title.trim();
+      if (!trimmed) return;
+      // Load the authoritative persisted transcript so renaming never truncates
+      // a session the user isn't currently viewing. For the active session the
+      // in-memory transcript is authoritative and may be newer than disk.
+      let msgs: ChatMessage[];
+      if (id === currentSessionId) {
+        msgs = messages;
+      } else {
+        const raw = await invoke<unknown>("load_session", { id }).catch(
+          () => null,
+        );
+        msgs = extractSessionMessages(raw);
+      }
+      // Remember the manual title first so the save (and any concurrent
+      // auto-persist) uses it, and it survives future derived-title writes.
+      manualTitlesRef.current.set(id, trimmed);
+      await invoke("save_session", { id, messages: msgs, title: trimmed });
+      await refreshSessions();
+    },
+    [currentSessionId, messages, refreshSessions],
+  );
+
+  const stop = useCallback(async () => {
+    const runSession = activeRunSessionRef.current;
+    if (!runSession) return;
+    // Detach immediately so any late stream events for this run are dropped.
+    activeRunSessionRef.current = null;
+    setPendingApproval(null);
+    setLoading(false);
+    try {
+      await invoke("agent_cancel", { session: runSession });
+    } catch {
+      // Cancellation is best-effort from the UI's perspective; the run is
+      // already detached locally. Swallow to avoid a spurious error turn.
+    }
+  }, []);
+
+  const compact = useCallback(async () => {
+    const id = currentSessionId;
+    if (!id) return;
+    const plan = planCompaction(messages);
+    if (!plan) return;
+    try {
+      const response = await invoke<{ summary?: string }>("agent_compact", {
+        history: plan.older,
+      });
+      const summary = response?.summary?.trim();
+      if (!summary) throw new Error("the provider returned an empty summary");
+      const compacted = compactedTranscript(summary, plan.recent);
+      skipNextPersistRef.current = true;
+      setMessages(compacted);
+      await persistSession(id, compacted);
+    } catch (e) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Error: failed to compact conversation — ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        },
+      ]);
+    }
+  }, [currentSessionId, messages, persistSession]);
+
   return {
     messages,
     loading,
@@ -391,5 +554,8 @@ export function useAgent(): UseAgentResult {
     newSession,
     switchSession,
     deleteSession,
+    renameSession,
+    stop,
+    compact,
   };
 }

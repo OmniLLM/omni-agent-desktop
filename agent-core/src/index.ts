@@ -35,7 +35,8 @@ import {
   saveMemory,
 } from "./memory.js";
 import { approvals, type ApprovalDecision } from "./approvals.js";
-import { isLocal, isMutatingLocal, makeToolRunner, runOnce } from "./run.js";
+import { cancelRegistry } from "./cancel.js";
+import { isAbortError, isLocal, isMutatingLocal, makeToolRunner, runOnce } from "./run.js";
 import {
   clearCopilotTokenCache,
   listCopilotModels,
@@ -347,6 +348,9 @@ server.register("agent.run", async (params, emit) => {
         ? { ...(data as Record<string, unknown>), session }
         : { value: data, session },
     );
+  // Register a per-session AbortController so `agent.cancel` can interrupt this
+  // run's in-flight inference. Registering aborts any prior run for the session.
+  const { controller, signal } = cancelRegistry.register(session);
   try {
     const settings = await loadHydratedSettings();
     const runMode: RunMode = mode ?? settings.run_mode ?? "ask";
@@ -399,14 +403,78 @@ server.register("agent.run", async (params, emit) => {
       provider,
       runTool,
       emit: semit,
+      signal,
     });
     appendDailyLog(configDir(), `agent replied (${outcome.text.length} chars)`);
     semit("agent://done", { text: outcome.text });
     return outcome;
   } catch (e) {
+    // A cancelled run (AbortSignal) is not a failure: emit a cancelled event
+    // and return quietly instead of surfacing an error to the frontend.
+    if (isAbortError(e)) {
+      process.stderr.write(`agent-core: agent.run cancelled (session=${session ?? "-"})\n`);
+      semit("agent://cancelled", { message: "cancelled" });
+      return { text: "", cancelled: true };
+    }
     semit("agent://error", { message: (e as Error).message });
     throw e;
+  } finally {
+    cancelRegistry.clear(session, controller);
   }
+});
+
+// --- agent cancel ----------------------------------------------------------
+// Abort the in-flight foreground run for a session. Propagates through the
+// active AbortController into `runOnce`/`provider.infer`/`fetch`; the run's
+// catch path emits `agent://cancelled`. Returns whether a run was cancelled.
+server.register("agent.cancel", (params) => {
+  const { session } = (params ?? {}) as { session?: string };
+  const cancelled = cancelRegistry.cancel(session);
+  process.stderr.write(
+    `agent-core: agent.cancel session=${session ?? "-"} cancelled=${cancelled}\n`,
+  );
+  return { ok: true, cancelled };
+});
+
+// --- agent compact ---------------------------------------------------------
+// Provider-neutral history summarization. Uses the current hydrated settings
+// and `pickProvider` (same routing as agent.run) with NO tools, asking the
+// active model to compress the supplied conversation into a compact summary the
+// frontend can substitute for the older turns. This is a single inference turn
+// (no agent loop, no tool gating), so scheduled-run behavior is untouched.
+server.register("agent.compact", async (params) => {
+  const { history, instructions } = (params ?? {}) as {
+    history?: Msg[];
+    instructions?: string;
+  };
+  const turns = Array.isArray(history) ? history : [];
+  if (turns.length === 0) return { summary: "", compacted: 0 };
+
+  const settings = await loadHydratedSettings();
+  const copilotToken = (await getSecret("github-copilot.token")) ?? null;
+  const provider = pickProvider(settings, copilotToken);
+
+  const system =
+    (instructions && instructions.trim().length
+      ? instructions.trim()
+      : "You compress conversations. Produce a concise, faithful summary that " +
+        "preserves decisions, facts, open questions, and any state needed to " +
+        "continue the task. Output only the summary text.");
+
+  // Serialize the conversation as a single user turn so any provider shape
+  // (chat-completions / anthropic / responses) handles it uniformly.
+  const transcript = turns
+    .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+    .join("\n\n");
+  const messages: Msg[] = [
+    {
+      role: "user",
+      content: `Summarize the following conversation:\n\n${transcript}`,
+    },
+  ];
+
+  const turn = await provider.infer(system, messages, []);
+  return { summary: turn.text, compacted: turns.length };
 });
 
 // --- scheduler -------------------------------------------------------------
@@ -430,7 +498,13 @@ const driver = new SchedulerDriver(
       isMutating: isMutatingLocal,
       provider,
       runTool,
-      emit: (event, data) => server.emit(event, data),
+      emit: (event, data) =>
+        server.emit(
+          event,
+          data && typeof data === "object"
+            ? { ...(data as Record<string, unknown>), session: `scheduled:${task.id}` }
+            : { value: data, session: `scheduled:${task.id}` },
+        ),
     });
   },
   (event, data) => server.emit(event, data),

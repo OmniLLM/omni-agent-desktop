@@ -20,6 +20,31 @@ export function gate(mode: RunMode, mutating: boolean): Gate {
 
 export const MAX_ITERATIONS_REPLY = "stopped: max iterations reached";
 
+/** Marker error used to signal that a run was cancelled (via AbortSignal)
+ * rather than failing for an ordinary reason. Callers can catch this to emit a
+ * cancellation event instead of an error. */
+export class CancelledError extends Error {
+  constructor(message = "run cancelled") {
+    super(message);
+    this.name = "CancelledError";
+  }
+}
+
+/** True when `e` is an AbortError (thrown by fetch when its signal aborts) or
+ * our own CancelledError. Both mean "the run was cancelled", not "it failed". */
+export function isAbortError(e: unknown): boolean {
+  if (e instanceof CancelledError) return true;
+  if (e instanceof Error && (e.name === "AbortError" || e.name === "CancelledError")) {
+    return true;
+  }
+  // DOMException AbortError (undici/web fetch) may not be an Error instance.
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    (e as { name?: unknown }).name === "AbortError"
+  );
+}
+
 export type EmitFn = (event: string, data: unknown) => void;
 
 export interface RunToolFn {
@@ -39,6 +64,9 @@ export interface RunOnceInput {
   emit: EmitFn;
   /** Approval timeout in ms; expired requests default to `deny`. */
   approvalTimeoutMs?: number;
+  /** Per-session cancellation. When aborted, in-flight inference is aborted
+   * and the loop stops by throwing a `CancelledError`. */
+  signal?: AbortSignal;
 }
 
 export interface RunOutcome {
@@ -57,14 +85,29 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
     runTool,
     emit,
     approvalTimeoutMs = 5 * 60_000,
+    signal,
   } = input;
   const messages = [...input.messages];
   const max = Math.max(1, input.maxIterations);
   const sessionAllow = new Set<string>();
   let counter = 0;
 
+  const throwIfAborted = () => {
+    if (signal?.aborted) throw new CancelledError();
+  };
+
   for (let iter = 0; iter < max; iter++) {
-    const turn: ParsedTurn = await provider.infer(system, messages, toolDefs);
+    throwIfAborted();
+    let turn: ParsedTurn;
+    try {
+      turn = await provider.infer(system, messages, toolDefs, signal);
+    } catch (e) {
+      // A fetch aborted by our signal surfaces as an AbortError; treat it as
+      // cancellation (not an ordinary provider failure) so callers can emit a
+      // cancelled event rather than an error.
+      if (signal?.aborted || isAbortError(e)) throw new CancelledError();
+      throw e;
+    }
     if (turn.tool_calls.length === 0) {
       return { text: turn.text };
     }
@@ -72,6 +115,7 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
       emit("agent://thought", { text: turn.text });
     }
     for (const call of turn.tool_calls) {
+      throwIfAborted();
       counter += 1;
       const callId = `call-${counter}`;
       const mutating = isA2A(call.name) || isMutating(call.name);

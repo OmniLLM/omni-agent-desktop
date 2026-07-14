@@ -13,7 +13,7 @@ import { normalizeEndpoint } from "./chat-completions.js";
 
 export function anthropicMessagesProvider(cfg: ProviderConfig): Provider {
   return {
-    async infer(system, messages, tools): Promise<ParsedTurn> {
+    async infer(system, messages, tools, signal): Promise<ParsedTurn> {
       const url = `${normalizeEndpoint(cfg.endpoint)}/messages`;
       const body: Record<string, unknown> = {
         model: cfg.model,
@@ -30,6 +30,7 @@ export function anthropicMessagesProvider(cfg: ProviderConfig): Provider {
           "content-type": "application/json",
         },
         body: JSON.stringify(body),
+        signal,
       });
       if (!r.ok) throw new Error(`anthropic http ${r.status}: ${await r.text()}`);
       return parseAnthropic((await r.json()) as unknown);

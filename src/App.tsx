@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "./lib/runtime";
 import ChatPane from "./components/ChatPane";
 import Composer from "./components/Composer";
@@ -6,13 +6,15 @@ import WelcomeScreen from "./components/WelcomeScreen";
 import ScheduledView from "./components/ScheduledView";
 import ToolApprovalPrompt from "./components/ToolApprovalPrompt";
 import SettingsWindow from "./components/SettingsWindow";
+import HelpPanel from "./components/HelpPanel";
 import Sidebar, { type WorkspaceView } from "./components/Sidebar";
 import Titlebar from "./components/Titlebar";
 import GlobalKeyframes from "./components/GlobalKeyframes";
 import AppShell from "./components/AppShell";
 import { useAgent } from "./hooks/useAgent";
 import { useTheme } from "./hooks/useTheme";
-import type { AppSettings, ProviderType } from "./types/app";
+import type { AppSettings, ProviderType, RunMode } from "./types/app";
+import type { SlashContext } from "./lib/slashCommands";
 import { applyWindowSize, normalizeWindowSize } from "./lib/windowSize";
 import { parseThemeMode } from "./utils/theme";
 
@@ -28,6 +30,11 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [view, setView] = useState<WorkspaceView>("chat");
   const [approveForMe, setApproveForMe] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  // Agent run mode chosen via `/agent`. Seeded from persisted settings; falls
+  // back to the Approve-for-me toggle when unset so behavior is unchanged for
+  // users who never invoke the command.
+  const [runMode, setRunMode] = useState<RunMode | null>(null);
   const { resolvedTheme, setTheme } = useTheme();
   const {
     messages,
@@ -40,14 +47,22 @@ export default function App() {
     newSession,
     switchSession,
     deleteSession,
+    renameSession,
+    stop,
+    compact,
   } = useAgent();
   const scrollRef = useRef<HTMLDivElement>(null);
   const settingsCloseRef = useRef<(() => Promise<void>) | null>(null);
   const showSettingsRef = useRef(false);
+  const showHelpRef = useRef(false);
 
   useEffect(() => {
     showSettingsRef.current = showSettings;
   }, [showSettings]);
+
+  useEffect(() => {
+    showHelpRef.current = showHelp;
+  }, [showHelp]);
 
   const requestCloseSettings = () => {
     const closer = settingsCloseRef.current;
@@ -87,7 +102,8 @@ export default function App() {
         e.preventDefault();
         setShowSettings((v) => !v);
       } else if (e.key === "Escape") {
-        if (showSettingsRef.current) requestCloseSettings();
+        if (showHelpRef.current) setShowHelp(false);
+        else if (showSettingsRef.current) requestCloseSettings();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -100,7 +116,10 @@ export default function App() {
   };
 
   const submit = (text: string) => {
-    void send(text, approveForMe ? "autopilot" : "ask");
+    // Precedence: an explicit `/agent` choice wins; otherwise fall back to the
+    // Approve-for-me toggle (autopilot vs. ask), preserving prior behavior.
+    const mode: RunMode = runMode ?? (approveForMe ? "autopilot" : "ask");
+    void send(text, mode);
   };
 
   // Change provider/model from the composer picker and persist it, mirroring
@@ -129,6 +148,32 @@ export default function App() {
   };
 
   const isEmpty = messages.length === 0;
+
+  // Runtime surface handed to the slash-command registry. Rebuilt when the
+  // handlers/state it captures change so commands always act on current state.
+  const slashContext: SlashContext = useMemo(
+    () => ({
+      newSession: handleNewTask,
+      clearSession: newSession,
+      renameSession: (title) => {
+        if (currentSessionId) return renameSession(currentSessionId, title);
+      },
+      setRunMode,
+      stopRun: stop,
+      compact,
+      openSettings: () => setShowSettings(true),
+      openHelp: () => setShowHelp(true),
+      loading,
+    }),
+    [
+      newSession,
+      currentSessionId,
+      renameSession,
+      stop,
+      compact,
+      loading,
+    ],
+  );
 
   // The background actually shown: an active live preview takes precedence over
   // the persisted setting; otherwise fall back to the saved background.
@@ -168,6 +213,8 @@ export default function App() {
             </div>
           </div>
         ) : null}
+
+        {showHelp ? <HelpPanel onClose={() => setShowHelp(false)} /> : null}
 
         <div
           className={`workspace${collapsed ? " workspace--collapsed" : ""}`}
@@ -221,6 +268,7 @@ export default function App() {
                   onModelChange={handleModelChange}
                   approveForMe={approveForMe}
                   onToggleApprove={setApproveForMe}
+                  slash={slashContext}
                 />
               </>
             ) : (

@@ -10,7 +10,7 @@ import type { ParsedTurn, Provider } from "./types.js";
 
 export function azureFoundryProvider(cfg: ProviderConfig): Provider {
   return {
-    async infer(system, messages, tools): Promise<ParsedTurn> {
+    async infer(system, messages, tools, signal): Promise<ParsedTurn> {
       const deployment = resolveDeployment(cfg);
       const base = cfg.endpoint.replace(/\/+$/, "");
       const apiVersion = cfg.azure_api_version || "2024-02-01";
@@ -28,6 +28,7 @@ export function azureFoundryProvider(cfg: ProviderConfig): Provider {
           "content-type": "application/json",
         },
         body: JSON.stringify(body),
+        signal,
       });
       if (!r.ok) throw new Error(`azure http ${r.status}: ${await r.text()}`);
       return parseChatCompletions((await r.json()) as unknown);

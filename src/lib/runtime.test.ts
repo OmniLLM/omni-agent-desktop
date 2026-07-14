@@ -233,6 +233,47 @@ describe("backend mode detection", () => {
 });
 
 // ===========================================================================
+// 2b. Agent cancel/compact legacy → sidecar routing
+// ===========================================================================
+
+describe("agent cancel/compact routing", () => {
+  afterEach(cleanupGlobals);
+
+  it("routes agent_cancel to the agent.cancel sidecar method in the desktop shell", async () => {
+    (globalThis as any).window = { __TAURI_INTERNALS__: {} };
+    vi.mocked(tauriInvoke).mockResolvedValue({ ok: true, cancelled: true });
+
+    await expect(
+      invoke("agent_cancel", { session: "sess-1" }),
+    ).resolves.toEqual({ ok: true, cancelled: true });
+
+    expect(tauriInvoke).toHaveBeenCalledWith("sidecar_call", {
+      method: "agent.cancel",
+      params: { session: "sess-1" },
+    });
+  });
+
+  it("routes agent_compact to the agent.compact sidecar method in the desktop shell", async () => {
+    (globalThis as any).window = { __TAURI_INTERNALS__: {} };
+    vi.mocked(tauriInvoke).mockResolvedValue({ summary: "short", compacted: 2 });
+
+    const history = [
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "hello" },
+    ];
+    await expect(invoke("agent_compact", { history })).resolves.toEqual({
+      summary: "short",
+      compacted: 2,
+    });
+
+    expect(tauriInvoke).toHaveBeenCalledWith("sidecar_call", {
+      method: "agent.compact",
+      params: { history },
+    });
+  });
+});
+
+// ===========================================================================
 // 3. HTTP routing for all command endpoints
 // ===========================================================================
 

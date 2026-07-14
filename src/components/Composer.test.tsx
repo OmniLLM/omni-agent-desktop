@@ -3,6 +3,23 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import Composer from "./Composer";
 import type { AppSettings } from "../types/app";
+import type { SlashContext } from "../lib/slashCommands";
+
+function makeSlash(overrides: Partial<SlashContext> = {}): SlashContext {
+  return {
+    newSession: vi.fn(),
+    clearSession: vi.fn(),
+    renameSession: vi.fn(),
+    openModelMenu: vi.fn(),
+    setRunMode: vi.fn(),
+    stopRun: vi.fn(),
+    compact: vi.fn(),
+    openSettings: vi.fn(),
+    openHelp: vi.fn(),
+    loading: false,
+    ...overrides,
+  };
+}
 
 function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
   return {
@@ -133,5 +150,39 @@ describe("Composer", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     await userEvent.click(toggle);
     expect(onToggleApprove).toHaveBeenCalledWith(true);
+  });
+
+  it("shows the slash menu when typing '/' and runs a command instead of sending", async () => {
+    const onSend = vi.fn();
+    const slash = makeSlash();
+    render(
+      <Composer
+        onSend={onSend}
+        disabled={false}
+        settings={makeSettings()}
+        slash={slash}
+      />,
+    );
+    const textbox = screen.getByRole("textbox");
+    await userEvent.type(textbox, "/new");
+    expect(screen.getByRole("listbox", { name: /slash commands/i })).toBeInTheDocument();
+    await userEvent.keyboard("{Enter}");
+    expect(slash.newSession).toHaveBeenCalled();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(textbox).toHaveValue("");
+  });
+
+  it("passes an unknown slash command through to onSend", async () => {
+    const onSend = vi.fn();
+    render(
+      <Composer
+        onSend={onSend}
+        disabled={false}
+        settings={makeSettings()}
+        slash={makeSlash()}
+      />,
+    );
+    await userEvent.type(screen.getByRole("textbox"), "/unknown thing{Enter}");
+    expect(onSend).toHaveBeenCalledWith("/unknown thing");
   });
 });

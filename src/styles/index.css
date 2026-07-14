@@ -28,6 +28,7 @@
 @import "./components/model-dropdown.css";
 @import "./components/markdown.css";
 @import "./components/slash-dropdown.css";
+@import "./components/help-panel.css";
 @import "./components/loading.css";
 @import "./components/scrollbar.css";
 @import "./components/search-highlight.css";

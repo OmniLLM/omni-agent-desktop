@@ -17,7 +17,7 @@ export function normalizeEndpoint(endpoint: string): string {
 
 export function chatCompletionsProvider(cfg: ProviderConfig): Provider {
   return {
-    async infer(system, messages, tools): Promise<ParsedTurn> {
+    async infer(system, messages, tools, signal): Promise<ParsedTurn> {
       const url = `${normalizeEndpoint(cfg.endpoint)}/chat/completions`;
       const body = {
         model: cfg.model,
@@ -31,6 +31,7 @@ export function chatCompletionsProvider(cfg: ProviderConfig): Provider {
           "content-type": "application/json",
         },
         body: JSON.stringify(body),
+        signal,
       });
       if (!r.ok) throw new Error(`http ${r.status}: ${await r.text()}`);
       return parseChatCompletions((await r.json()) as unknown);

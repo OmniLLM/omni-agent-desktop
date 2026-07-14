@@ -105,7 +105,7 @@ export async function listCopilotModels(longLivedToken: string): Promise<Copilot
 
 export function copilotProvider(cfg: ProviderConfig, longLivedToken: string | null): Provider {
   return {
-    async infer(system, messages, tools): Promise<ParsedTurn> {
+    async infer(system, messages, tools, signal): Promise<ParsedTurn> {
       if (!longLivedToken) throw new Error("GitHub Copilot is not connected");
       const token = await getShortLivedToken(longLivedToken);
       const model = cfg.model || "gpt-4o";
@@ -114,9 +114,9 @@ export function copilotProvider(cfg: ProviderConfig, longLivedToken: string | nu
       // (e.g. gpt-5.5, gpt-5.6-terra) reject /chat/completions with an HTTP
       // 400 `unsupported_api_for_model`; they must use /responses.
       if (isCopilotResponsesOnlyModel(model)) {
-        return copilotInferResponses(token, model, system, messages, tools);
+        return copilotInferResponses(token, model, system, messages, tools, signal);
       }
-      return copilotInferChat(token, model, system, messages, tools);
+      return copilotInferChat(token, model, system, messages, tools, signal);
     },
   };
 }
@@ -128,6 +128,7 @@ async function copilotInferChat(
   system: string,
   messages: Msg[],
   tools: unknown[],
+  signal?: AbortSignal,
 ): Promise<ParsedTurn> {
   const body = {
     model,
@@ -138,6 +139,7 @@ async function copilotInferChat(
     method: "POST",
     headers: copilotHeaders(token),
     body: JSON.stringify(body),
+    signal,
   });
   if (!r.ok) throw new Error(`copilot http ${r.status}: ${await r.text()}`);
   return parseChatCompletions((await r.json()) as unknown);
@@ -150,6 +152,7 @@ async function copilotInferResponses(
   system: string,
   messages: Msg[],
   tools: unknown[],
+  signal?: AbortSignal,
 ): Promise<ParsedTurn> {
   const body = {
     model,
@@ -163,6 +166,7 @@ async function copilotInferResponses(
     method: "POST",
     headers: copilotHeaders(token),
     body: JSON.stringify(body),
+    signal,
   });
   if (!r.ok) throw new Error(`copilot http ${r.status}: ${await r.text()}`);
   return parseResponses((await r.json()) as unknown);

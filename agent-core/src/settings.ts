@@ -54,6 +54,10 @@ export interface AppSettings {
   ai_max_retry_attempts: number;
   ai_retry_base_delay_ms: number;
   ai_loop_detector_enabled: boolean;
+  /** How long to poll an A2A task for a terminal result before giving up, in
+   * seconds. Separate from `ai_timeout_secs` (the provider HTTP timeout): A2A
+   * skills can run far longer than a single model request. */
+  a2a_timeout_secs: number;
   theme: string;
   hotkey: string;
   max_results: number;
@@ -98,6 +102,7 @@ export function defaultSettings(): AppSettings {
     ai_max_retry_attempts: 3,
     ai_retry_base_delay_ms: 2000,
     ai_loop_detector_enabled: true,
+    a2a_timeout_secs: 120,
     theme: "system",
     hotkey: "Ctrl+Shift+O",
     max_results: 10,
@@ -135,6 +140,14 @@ function fillDefaults(raw: Partial<AppSettings>): AppSettings {
   // Normalize unknown window-size preset.
   if (!(["compact", "standard", "large", "custom"] as const).includes(merged.window_size)) {
     merged.window_size = "standard";
+  }
+  // Clamp the A2A poll timeout to a sane range (1s–1h); fall back to the default
+  // when missing or non-numeric.
+  {
+    const n = Number(merged.a2a_timeout_secs);
+    merged.a2a_timeout_secs = Number.isFinite(n)
+      ? Math.min(3600, Math.max(1, Math.floor(n)))
+      : d.a2a_timeout_secs;
   }
   // Sanitize custom-size dimensions (missing values are allowed; the frontend
   // fills defaults on first Custom selection).

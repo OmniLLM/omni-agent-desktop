@@ -893,6 +893,26 @@ export default function SettingsWindow({
                     />
                   </div>
                   <div style={rowStyle()}>
+                    <span style={rowLabelStyle}>A2A Task Timeout</span>
+                    <input
+                      className="omni-input"
+                      type="number"
+                      min={1}
+                      max={3600}
+                      value={settings.a2a_timeout_secs}
+                      onChange={(e) =>
+                        setSettings(
+                          (s) =>
+                            s && {
+                              ...s,
+                              a2a_timeout_secs: parseInt(e.target.value) || 120,
+                            },
+                        )
+                      }
+                      title="How long to poll a delegated A2A task for a result before giving up, in seconds. Increase for long-running skills that exceed the 120s default."
+                    />
+                  </div>
+                  <div style={rowStyle()}>
                     <span style={rowLabelStyle}>Tool Iterations</span>
                     <input
                       className="omni-input"

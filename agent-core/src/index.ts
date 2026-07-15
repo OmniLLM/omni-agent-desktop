@@ -389,7 +389,7 @@ server.register("agent.run", async (params, emit) => {
     const runTool = makeToolRunner(async (name, args) => {
       const tool = a2aByName.get(name);
       if (!tool) throw new Error(`unknown tool: ${name}`);
-      return delegate(tool, args);
+      return delegate(tool, args, settings.a2a_timeout_secs * 1000);
     });
 
     const outcome = await runOnce({

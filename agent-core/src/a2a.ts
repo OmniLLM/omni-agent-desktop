@@ -197,7 +197,11 @@ export function isTerminalResult(result: A2aTask | undefined): boolean {
  * poll tasks/get until the task reaches a terminal state, then extract the
  * output. A failed task raises so the model gets a real error, not silence.
  */
-export async function delegate(tool: A2aTool, args: Record<string, unknown>): Promise<string> {
+export async function delegate(
+  tool: A2aTool,
+  args: Record<string, unknown>,
+  timeoutMs: number = DEFAULT_POLL_TIMEOUT_MS,
+): Promise<string> {
   const task = typeof args.task === "string" ? args.task : JSON.stringify(args);
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (tool.token) headers.authorization = `Bearer ${tool.token}`;
@@ -216,7 +220,7 @@ export async function delegate(tool: A2aTool, args: Record<string, unknown>): Pr
 
   // Poll to completion when the hub handed back a non-terminal task.
   if (taskId && !isTerminalResult(result)) {
-    result = await pollTask(tool, headers, taskId);
+    result = await pollTask(tool, headers, taskId, timeoutMs);
   }
 
   if (result?.status?.state === "failed") {
@@ -235,15 +239,18 @@ export async function delegate(tool: A2aTool, args: Record<string, unknown>): Pr
 }
 
 const POLL_INTERVAL_MS = 1500;
-const POLL_TIMEOUT_MS = 120_000;
+/** Fallback A2A poll timeout when no configured value is passed. Overridden by
+ * `AppSettings.a2a_timeout_secs` via `delegate(..., timeoutMs)`. */
+const DEFAULT_POLL_TIMEOUT_MS = 120_000;
 
 /** Polls tasks/get until the task is terminal or the timeout elapses. */
 async function pollTask(
   tool: A2aTool,
   headers: Record<string, string>,
   taskId: string,
+  timeoutMs: number = DEFAULT_POLL_TIMEOUT_MS,
 ): Promise<A2aTask | undefined> {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
   let last: A2aTask | undefined;
   while (Date.now() < deadline) {
     await sleep(POLL_INTERVAL_MS);
@@ -260,7 +267,7 @@ async function pollTask(
     if (isTerminalResult(last)) return last;
   }
   throw new Error(
-    `a2a task ${taskId} did not complete within ${Math.round(POLL_TIMEOUT_MS / 1000)}s`,
+    `a2a task ${taskId} did not complete within ${Math.round(timeoutMs / 1000)}s`,
   );
 }
 

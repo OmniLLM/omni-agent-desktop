@@ -75,6 +75,7 @@ const realSettings: AppSettings = {
   ai_max_retry_attempts: 7,
   ai_retry_base_delay_ms: 1500,
   ai_loop_detector_enabled: true,
+  a2a_timeout_secs: 240,
   theme: "dark",
   hotkey: "Ctrl+Shift+O",
   max_results: 25,

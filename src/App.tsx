@@ -109,6 +109,9 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.key === ",") {
         e.preventDefault();
         setShowSettings((v) => !v);
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === "h" || e.key === "H")) {
+        e.preventDefault();
+        setCollapsed((v) => !v);
       } else if (e.key === "Escape") {
         if (showHelpRef.current) setShowHelp(false);
         else if (showSettingsRef.current) requestCloseSettings();
@@ -276,7 +279,7 @@ export default function App() {
                 type="button"
                 className="sidebar-show"
                 aria-label="Show sidebar"
-                title="Show sidebar"
+                title="Show sidebar (Ctrl+H)"
                 onClick={() => setCollapsed(false)}
               >
                 ⇥

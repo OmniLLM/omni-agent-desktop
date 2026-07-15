@@ -38,7 +38,7 @@ export default function Sidebar({
           type="button"
           className="sidebar__icon-btn"
           aria-label="Hide sidebar"
-          title="Hide sidebar"
+          title="Hide sidebar (Ctrl+H)"
           onClick={onToggleCollapse}
         >
           ⇤

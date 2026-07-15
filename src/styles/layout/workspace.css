@@ -411,6 +411,7 @@
 }
 
 .composer2__box {
+  position: relative;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: color-mix(in srgb, var(--bg-elevated) 80%, transparent);

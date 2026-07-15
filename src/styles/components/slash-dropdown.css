@@ -2,17 +2,19 @@
 .slash-dropdown {
   position: absolute;
   bottom: 100%;
-  left: 0;
-  right: 0;
-  max-height: 280px;
+  left: 16px;
+  width: max-content;
+  min-width: min(260px, calc(100% - 32px));
+  max-width: min(420px, calc(100% - 32px));
+  max-height: min(260px, calc(100vh - 188px));
   overflow-y: auto;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  margin-bottom: 8px;
+  border-radius: 10px;
+  margin-bottom: 6px;
   z-index: 200;
   box-shadow: var(--shadow);
-  padding: 6px;
+  padding: 4px;
   scrollbar-width: thin;
   scrollbar-color: var(--surface-2) transparent;
   backdrop-filter: blur(15px);
@@ -20,19 +22,18 @@
 }
 
 .slash-dropdown__item {
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 5px 9px;
+  border-radius: 6px;
   cursor: pointer;
-  transition: background 120ms ease, transform 100ms ease;
+  transition: background 120ms ease;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .slash-dropdown__item:hover,
 .slash-dropdown__item--active {
   background: var(--surface);
-  transform: translateX(2px);
 }
 
 .slash-dropdown__header {
@@ -44,7 +45,7 @@
 
 .slash-dropdown__cmd {
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--accent);
 }
@@ -59,8 +60,11 @@
 }
 
 .slash-dropdown__desc {
-  font-size: 12px;
+  overflow: hidden;
   color: var(--text-secondary);
-  margin-top: 2px;
+  font-size: 11px;
+  margin-top: 1px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 

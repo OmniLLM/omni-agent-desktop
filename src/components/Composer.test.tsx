@@ -155,6 +155,29 @@ describe("Composer", () => {
     expect(onToggleApprove).toHaveBeenCalledWith(true);
   });
 
+  it("opens and filters the slash command popup as text is typed", async () => {
+    const user = userEvent.setup();
+    render(
+      <Composer
+        onSend={vi.fn()}
+        disabled={false}
+        settings={makeSettings()}
+        slash={makeSlash()}
+      />,
+    );
+
+    const textbox = screen.getByRole("textbox");
+    await user.type(textbox, "/");
+    expect(
+      screen.getByRole("listbox", { name: /slash commands/i }),
+    ).toBeInTheDocument();
+
+    await user.type(textbox, "re");
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveTextContent("/rename");
+  });
+
   it("shows the slash menu when typing '/' and runs a command instead of sending", async () => {
     const onSend = vi.fn();
     const slash = makeSlash();

@@ -7,11 +7,13 @@ import ScheduledView from "./components/ScheduledView";
 import ToolApprovalPrompt from "./components/ToolApprovalPrompt";
 import SettingsWindow from "./components/SettingsWindow";
 import HelpPanel from "./components/HelpPanel";
+import ToastHost from "./components/ToastHost";
 import Sidebar, { type WorkspaceView } from "./components/Sidebar";
 import Titlebar from "./components/Titlebar";
 import GlobalKeyframes from "./components/GlobalKeyframes";
 import AppShell from "./components/AppShell";
 import { useAgent } from "./hooks/useAgent";
+import { useToasts } from "./hooks/useToasts";
 import { useTheme } from "./hooks/useTheme";
 import type { AppSettings, ProviderType, RunMode } from "./types/app";
 import type { SlashContext, SlashCommand } from "./lib/slashCommands";
@@ -50,7 +52,9 @@ export default function App() {
     renameSession,
     stop,
     compact,
+    notify,
   } = useAgent();
+  const { toasts, pushToast, dismissToast } = useToasts();
   const scrollRef = useRef<HTMLDivElement>(null);
   const settingsCloseRef = useRef<(() => Promise<void>) | null>(null);
   const showSettingsRef = useRef(false);
@@ -167,6 +171,8 @@ export default function App() {
       compact,
       openSettings: () => setShowSettings(true),
       openHelp: () => setShowHelp(true),
+      notify,
+      toast: pushToast,
       loading,
     }),
     [
@@ -175,6 +181,8 @@ export default function App() {
       renameSession,
       stop,
       compact,
+      notify,
+      pushToast,
       loading,
     ],
   );
@@ -307,6 +315,7 @@ export default function App() {
           </div>
         </div>
       </AppShell>
+      <ToastHost toasts={toasts} onDismiss={dismissToast} />
     </>
   );
 }

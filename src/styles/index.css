@@ -32,6 +32,7 @@
 @import "./components/loading.css";
 @import "./components/scrollbar.css";
 @import "./components/search-highlight.css";
+@import "./components/toast.css";
 
 /* manager panels */
 @import "./panels/primitives.css";

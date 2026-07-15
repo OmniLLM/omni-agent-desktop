@@ -13,6 +13,10 @@ export interface SlashContext {
   compact: () => void | Promise<void>;
   openSettings: (tab?: SettingsTabId) => void;
   openHelp: () => void;
+  /** Append an inline system notice to the transcript (durable, in-context UI). */
+  notify: (message: string) => void;
+  /** Show a transient, auto-dismissing toast (ephemeral confirmation). */
+  toast: (message: string) => void;
   loading: boolean;
 }
 
@@ -57,7 +61,9 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     argHint: "<new title>",
     run: (ctx, arg) => {
       const title = arg.trim();
-      if (title) return ctx.renameSession(title);
+      if (!title) return;
+      ctx.toast(`Renamed to “${title}”`);
+      return ctx.renameSession(title);
     },
   },
   {
@@ -81,6 +87,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
         ctx.setRunMode
       ) {
         ctx.setRunMode(mode);
+        ctx.notify(`Run mode set to ${mode}.`);
       }
     },
   },
@@ -90,7 +97,10 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     title: "Stop",
     description: "Stop the active run",
     enabled: (ctx) => ctx.loading,
-    run: (ctx) => ctx.stopRun(),
+    run: (ctx) => {
+      ctx.stopRun();
+      ctx.toast("Run stopped");
+    },
   },
   {
     name: "compact",

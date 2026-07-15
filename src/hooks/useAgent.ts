@@ -31,6 +31,9 @@ export interface UseAgentResult {
    * Invokes `agent_compact` to persist the compaction; on failure the full
    * transcript is left intact (no silent truncation) and the error is surfaced. */
   compact: () => Promise<void>;
+  /** Append a local, non-conversational system notice to the transcript. Used
+   * for slash-command acknowledgments; excluded from provider history. */
+  notify: (content: string) => void;
 }
 
 interface ToolResultEvent {
@@ -444,6 +447,13 @@ export function useAgent(): UseAgentResult {
     setLoading(false);
   }, []);
 
+  /** Append a local, non-conversational notice (e.g. a slash-command
+   * acknowledgment). System turns render inline but are filtered out of provider
+   * history by `conversationHistory`, so they never round-trip to the model. */
+  const notify = useCallback((content: string) => {
+    setMessages((prev) => [...prev, { role: "system", content }]);
+  }, []);
+
   const switchSession = useCallback(async (id: string) => {
     // Detach from any in-flight run before showing another session's transcript.
     activeRunSessionRef.current = null;
@@ -557,5 +567,6 @@ export function useAgent(): UseAgentResult {
     renameSession,
     stop,
     compact,
+    notify,
   };
 }

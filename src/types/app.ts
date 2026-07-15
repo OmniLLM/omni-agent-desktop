@@ -1,7 +1,10 @@
 export type RunMode = "plan" | "ask" | "autopilot";
 
 export interface ChatMessage {
-  role: "user" | "assistant" | "thinking";
+  /** "system" turns are local UI notices (e.g. slash-command acknowledgments).
+   * They render inline but are excluded from the model context by
+   * `conversationHistory`, so they never round-trip to the provider. */
+  role: "user" | "assistant" | "thinking" | "system";
   content: string;
   tools_used?: string[];
   isStreaming?: boolean;

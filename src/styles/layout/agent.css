@@ -364,6 +364,31 @@
   color: var(--sub);
 }
 
+/* === System notice ===
+   Inline, non-conversational acknowledgment for local actions (e.g. slash
+   commands). Rendered centered and muted so it reads as UI chrome rather than a
+   chat turn, and excluded from provider history by `conversationHistory`. */
+.system-notice {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 78%;
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 55%, transparent);
+  animation: agent-bubble-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.system-notice-content {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  text-align: center;
+  word-break: break-word;
+}
+
 /* === Thinking indicator ===
    Shown while a run is in flight (the agent is working) so the user always sees
    progress, even before the first token arrives. */

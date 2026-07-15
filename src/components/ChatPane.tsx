@@ -90,6 +90,13 @@ export default function ChatPane({
   return (
     <div className="chat-pane">
       {messages.map((m, i) => {
+        if (m.role === "system") {
+          return (
+            <div key={i} className="system-notice" role="status">
+              <span className="system-notice-content">{m.content}</span>
+            </div>
+          );
+        }
         if (m.role === "thinking") {
           const kind = m.kind ?? "thought";
           return (

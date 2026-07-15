@@ -1,0 +1,35 @@
+/* Toast notifications
+   Transient, auto-dismissing confirmations for ephemeral slash-command actions
+   (rename, stop). Durable acknowledgments use inline `.system-notice` instead.
+   Rendered fixed at the bottom-center, above all app chrome. */
+.toast-host {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  cursor: pointer;
+  max-width: 360px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: var(--shadow);
+  animation: agent-bubble-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.toast:hover {
+  background: var(--surface-hover);
+}

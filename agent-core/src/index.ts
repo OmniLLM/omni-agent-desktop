@@ -331,10 +331,11 @@ server.register("agent.approve", (params) => {
 
 // --- agent run -------------------------------------------------------------
 server.register("agent.run", async (params, emit) => {
-  const { message, mode, history, session } = params as {
+  const { message, mode, history, images, session } = params as {
     message: string;
     mode?: RunMode;
     history?: Msg[];
+    images?: Msg["images"];
     session?: string;
   };
   // Tag every event with the originating session so the frontend can route
@@ -382,7 +383,11 @@ server.register("agent.run", async (params, emit) => {
     const system = buildSystemPrompt(runMode, startupMemory);
     const messages: Msg[] = [
       ...(history ?? []),
-      { role: "user", content: message },
+      {
+        role: "user",
+        content: message,
+        ...(images?.length ? { images } : {}),
+      },
     ];
 
     const provider = pickProvider(settings, copilotToken);

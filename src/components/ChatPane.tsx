@@ -111,6 +111,13 @@ export default function ChatPane({
         }
         return (
           <div key={i} className={`bubble ${m.role}`}>
+            {m.images?.length ? (
+              <div className="message-images">
+                {m.images.map((image) => (
+                  <img key={image.id} src={image.data_url} alt={image.name} />
+                ))}
+              </div>
+            ) : null}
             {m.role === "assistant" ? (
               <div
                 className="content md-content"

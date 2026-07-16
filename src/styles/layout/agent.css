@@ -231,6 +231,24 @@
   }
 }
 
+.bubble .message-images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bubble .message-images img {
+  display: block;
+  max-width: min(420px, 100%);
+  max-height: 280px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
 .bubble .content {
   font-size: 14.5px;
   line-height: 1.6;

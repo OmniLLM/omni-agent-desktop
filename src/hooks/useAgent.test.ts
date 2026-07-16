@@ -47,6 +47,31 @@ describe("useAgent", () => {
     });
   });
 
+  it("sends screenshot attachments with the user turn and agent run", async () => {
+    const image = {
+      id: "shot-1",
+      data_url: "data:image/png;base64,cG5n",
+      mime_type: "image/png",
+      name: "screenshot.png",
+    };
+    const { result } = renderHook(() => useAgent());
+    await act(async () => {
+      await result.current.send("inspect this", "ask", [image]);
+    });
+    expect(invoke).toHaveBeenCalledWith("agent_run", {
+      message: "inspect this",
+      mode: "ask",
+      history: [],
+      images: [image],
+      session: expect.anything(),
+    });
+    expect(result.current.messages[0]).toMatchObject({
+      role: "user",
+      content: "inspect this",
+      images: [image],
+    });
+  });
+
   it("ignores a second send while a run is active", async () => {
     const { result } = renderHook(() => useAgent());
     await act(async () => {

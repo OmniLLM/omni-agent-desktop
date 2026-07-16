@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../lib/runtime";
 import type {
   ChatMessage,
+  ImageAttachment,
   RunMode,
   SessionInfo,
   ToolCallEvent,
@@ -13,7 +14,7 @@ export interface UseAgentResult {
   pendingApproval: ToolCallEvent | null;
   sessions: SessionInfo[];
   currentSessionId: string | null;
-  send: (text: string, mode?: RunMode) => Promise<void>;
+  send: (text: string, mode?: RunMode, images?: ImageAttachment[]) => Promise<void>;
   decide: (decision: "approve" | "deny" | "allow_session") => Promise<void>;
   newSession: () => void;
   switchSession: (id: string) => Promise<void>;
@@ -396,21 +397,36 @@ export function useAgent(): UseAgentResult {
   }, []);
 
   const send = useCallback(
-    async (text: string, mode: RunMode = "ask") => {
-      if (!text.trim() || activeRunSessionRef.current) return;
+    async (
+      text: string,
+      mode: RunMode = "ask",
+      images: ImageAttachment[] = [],
+    ) => {
+      if ((!text.trim() && images.length === 0) || activeRunSessionRef.current) return;
       // History is the prior conversation, before this new question.
       const history = conversationHistory(messages);
       historyRef.current = history;
       const runSession = currentSessionId;
       activeRunSessionRef.current = runSession;
-      setMessages((prev) => [...prev, { role: "user", content: text }]);
+      const userMessage: ChatMessage = {
+        role: "user",
+        content: text,
+        ...(images.length > 0 ? { images } : {}),
+      };
+      setMessages((prev) => [...prev, userMessage]);
       setLoading(true);
       try {
         // Mode is caller-controlled: "ask" prompts for mutating tools,
         // "autopilot" (Approve-for-me) auto-approves. The native side
         // assembles the context window and injects memory. `session` tags the
         // run so its stream events are routed back only to this session.
-        await invoke("agent_run", { message: text, mode, history, session: runSession });
+        await invoke("agent_run", {
+          message: text,
+          mode,
+          history,
+          ...(images.length > 0 ? { images } : {}),
+          session: runSession,
+        });
       } catch (e) {
         // Only surface the failure if the user is still on the run's session.
         if (activeRunSessionRef.current === runSession) {

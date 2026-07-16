@@ -1,3 +1,4 @@
+import { createRef } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
@@ -17,6 +18,7 @@ function makeSlash(overrides: Partial<SlashContext> = {}): SlashContext {
     openSettings: vi.fn(),
     openHelp: vi.fn(),
     openSkills: vi.fn(),
+    captureScreenshot: vi.fn(),
     notify: vi.fn(),
     toast: vi.fn(),
     loading: false,
@@ -173,7 +175,7 @@ describe("Composer", () => {
       screen.getByRole("listbox", { name: /slash commands/i }),
     ).toBeInTheDocument();
 
-    await user.type(textbox, "re");
+    await user.type(textbox, "rena");
     const options = screen.getAllByRole("option");
     expect(options).toHaveLength(1);
     expect(options[0]).toHaveTextContent("/rename");
@@ -211,5 +213,41 @@ describe("Composer", () => {
     );
     await userEvent.type(screen.getByRole("textbox"), "/unknown thing{Enter}");
     expect(onSend).toHaveBeenCalledWith("/unknown thing");
+  });
+
+  it("shows a captured screenshot in the input box and sends it to the agent", async () => {
+    const onSend = vi.fn();
+    const composerRef = createRef<{
+      setText: (text: string) => void;
+      addImage: (image: {
+        id: string;
+        data_url: string;
+        mime_type: string;
+        name: string;
+      }) => void;
+    }>();
+    const image = {
+      id: "shot-1",
+      data_url: "data:image/png;base64,cG5n",
+      mime_type: "image/png",
+      name: "screenshot.png",
+    };
+
+    render(
+      <Composer
+        onSend={onSend}
+        disabled={false}
+        settings={makeSettings()}
+        composerRef={composerRef}
+      />,
+    );
+    composerRef.current?.addImage(image);
+
+    expect(await screen.findByRole("img", { name: "screenshot.png" })).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox"), "What is wrong here?");
+    await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    expect(onSend).toHaveBeenCalledWith("What is wrong here?", [image]);
+    expect(screen.queryByRole("img", { name: "screenshot.png" })).toBeNull();
   });
 });

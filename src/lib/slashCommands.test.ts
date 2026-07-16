@@ -18,6 +18,7 @@ function makeContext(overrides: Partial<SlashContext> = {}): SlashContext {
     openSettings: vi.fn(),
     openHelp: vi.fn(),
     openSkills: vi.fn(),
+    captureScreenshot: vi.fn(),
     notify: vi.fn(),
     toast: vi.fn(),
     loading: false,
@@ -31,7 +32,7 @@ describe("filterCommands", () => {
   });
 
   it("prefix-matches command names", () => {
-    expect(filterCommands("re").map((command) => command.name)).toEqual([
+    expect(filterCommands("rena").map((command) => command.name)).toEqual([
       "rename",
     ]);
   });
@@ -73,5 +74,12 @@ describe("command dispatch", () => {
     const stop = SLASH_COMMANDS.find((command) => command.name === "stop")!;
     expect(stop.enabled?.(makeContext())).toBe(false);
     expect(stop.enabled?.(makeContext({ loading: true }))).toBe(true);
+  });
+
+  it("dispatches screenshot capture", async () => {
+    const context = makeContext();
+    const screenshot = matchCommand("/screenshot")!;
+    await screenshot.cmd.run(context, screenshot.arg);
+    expect(context.captureScreenshot).toHaveBeenCalledOnce();
   });
 });

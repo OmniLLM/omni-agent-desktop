@@ -42,7 +42,18 @@ export function chatCompletionsProvider(cfg: ProviderConfig): Provider {
 export function buildMessages(system: string, messages: Msg[]): unknown[] {
   const out: unknown[] = [];
   if (system.trim().length) out.push({ role: "system", content: system });
-  for (const m of messages) out.push({ role: m.role, content: m.content });
+  for (const m of messages) {
+    if (m.role !== "user" || !m.images?.length) {
+      out.push({ role: m.role, content: m.content });
+      continue;
+    }
+    const content: unknown[] = [];
+    if (m.content.trim()) content.push({ type: "text", text: m.content });
+    for (const image of m.images) {
+      content.push({ type: "image_url", image_url: { url: image.data_url } });
+    }
+    out.push({ role: m.role, content });
+  }
   return out;
 }
 

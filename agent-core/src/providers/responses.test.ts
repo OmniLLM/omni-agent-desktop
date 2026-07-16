@@ -1,5 +1,33 @@
 import { describe, expect, it } from "bun:test";
-import { toResponsesTools, parseResponses } from "./responses.js";
+import { buildResponsesInput, toResponsesTools, parseResponses } from "./responses.js";
+
+describe("buildResponsesInput", () => {
+  it("converts user screenshots to Responses input_image blocks", () => {
+    expect(
+      buildResponsesInput([
+        {
+          role: "user",
+          content: "Inspect this",
+          images: [
+            {
+              data_url: "data:image/png;base64,cG5n",
+              mime_type: "image/png",
+              name: "screenshot.png",
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "Inspect this" },
+          { type: "input_image", image_url: "data:image/png;base64,cG5n" },
+        ],
+      },
+    ]);
+  });
+});
 
 describe("toResponsesTools", () => {
   it("flattens Chat Completions tool schema to the Responses shape", () => {

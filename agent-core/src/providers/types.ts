@@ -3,9 +3,17 @@
  * Agent SDK, Codex SDK, HTTP Chat Completions). Returns a `ParsedTurn`:
  * assistant text + zero-or-more tool_calls.
  */
+export interface ImageAttachment {
+  id?: string;
+  data_url: string;
+  mime_type: string;
+  name?: string;
+}
+
 export interface Msg {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
+  images?: ImageAttachment[];
 }
 
 export interface ToolCall {

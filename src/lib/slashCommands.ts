@@ -14,6 +14,7 @@ export interface SlashContext {
   openSettings: (tab?: SettingsTabId) => void;
   openHelp: () => void;
   openSkills: () => void;
+  captureScreenshot: () => void | Promise<void>;
   /** Append an inline system notice to the transcript (durable, in-context UI). */
   notify: (message: string) => void;
   /** Show a transient, auto-dismissing toast (ephemeral confirmation). */
@@ -130,6 +131,14 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     title: "Show skills",
     description: "List local skills and A2A skills available to this app",
     run: (ctx) => ctx.openSkills(),
+  },
+  {
+    name: "screenshot",
+    kind: "action",
+    title: "Screenshot",
+    description: "Select an area and attach it to the input box",
+    aliases: ["shot"],
+    run: (ctx) => ctx.captureScreenshot(),
   },
 ];
 

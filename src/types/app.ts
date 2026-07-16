@@ -1,11 +1,21 @@
 export type RunMode = "plan" | "ask" | "autopilot";
 
+/** Image attached to a user turn. `data_url` is deliberately provider-neutral;
+ * the sidecar converts it to each provider's native multimodal content shape. */
+export interface ImageAttachment {
+  id: string;
+  data_url: string;
+  mime_type: string;
+  name: string;
+}
+
 export interface ChatMessage {
   /** "system" turns are local UI notices (e.g. slash-command acknowledgments).
    * They render inline but are excluded from the model context by
    * `conversationHistory`, so they never round-trip to the provider. */
   role: "user" | "assistant" | "thinking" | "system";
   content: string;
+  images?: ImageAttachment[];
   tools_used?: string[];
   isStreaming?: boolean;
   /** For role "thinking": the kind of trace entry, used for iconography. */

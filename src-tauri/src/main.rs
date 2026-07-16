@@ -18,8 +18,12 @@
 mod sidecar;
 
 use crate::sidecar::Sidecar;
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use serde::Serialize;
 use serde_json::Value;
 use simplelog::{ColorChoice, ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
@@ -121,6 +125,159 @@ fn frontend_log(level: String, message: String) {
         "debug" => log::debug!("[fe] {message}"),
         _ => log::info!("[fe] {message}"),
     }
+}
+
+#[derive(Serialize)]
+struct ScreenshotCapture {
+    data_url: String,
+    mime_type: String,
+    name: String,
+}
+
+fn encode_png_data_url(bytes: &[u8]) -> String {
+    format!("data:image/png;base64,{}", BASE64_STANDARD.encode(bytes))
+}
+
+fn screenshot_temp_path() -> PathBuf {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    std::env::temp_dir().join(format!(
+        "omni-agent-screenshot-{}-{stamp}.png",
+        std::process::id()
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn tool_exists(name: &str) -> bool {
+    Command::new("sh")
+        .args(["-c", &format!("command -v {name} >/dev/null 2>&1")])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+fn capture_area_to_path(path: &Path) -> Result<(), String> {
+    let path = path
+        .to_str()
+        .ok_or_else(|| "temporary screenshot path is not valid UTF-8".to_string())?;
+    let (program, args): (&str, Vec<&str>) = if tool_exists("gnome-screenshot") {
+        ("gnome-screenshot", vec!["-a", "-f", path])
+    } else if tool_exists("spectacle") {
+        ("spectacle", vec!["-r", "-b", "-n", "-o", path])
+    } else if tool_exists("scrot") {
+        ("scrot", vec!["-s", path])
+    } else if tool_exists("import") {
+        ("import", vec![path])
+    } else {
+        return Err(
+            "No screenshot selector found. Install gnome-screenshot, spectacle, scrot, or ImageMagick."
+                .to_string(),
+        );
+    };
+    let status = Command::new(program)
+        .args(args)
+        .status()
+        .map_err(|error| format!("failed to launch {program}: {error}"))?;
+    if !status.success() || !Path::new(path).is_file() {
+        return Err("Screenshot selection was cancelled.".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn capture_area_to_path(path: &Path) -> Result<(), String> {
+    let status = Command::new("screencapture")
+        .arg("-i")
+        .arg(path)
+        .status()
+        .map_err(|error| format!("failed to launch screencapture: {error}"))?;
+    if !status.success() || !path.is_file() {
+        return Err("Screenshot selection was cancelled.".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn capture_area_to_path(path: &Path) -> Result<(), String> {
+    let quoted_path = path
+        .to_str()
+        .ok_or_else(|| "temporary screenshot path is not valid UTF-8".to_string())?
+        .replace('\'', "''");
+    let script = format!(
+        r#"Add-Type -AssemblyName System.Windows.Forms,System.Drawing;
+[System.Windows.Forms.Clipboard]::Clear();
+Start-Process 'ms-screenclip:';
+$deadline = [DateTime]::UtcNow.AddSeconds(120);
+while ([DateTime]::UtcNow -lt $deadline) {{
+  Start-Sleep -Milliseconds 200;
+  if ([System.Windows.Forms.Clipboard]::ContainsImage()) {{
+    $image = [System.Windows.Forms.Clipboard]::GetImage();
+    $image.Save('{quoted_path}', [System.Drawing.Imaging.ImageFormat]::Png);
+    $image.Dispose();
+    exit 0;
+  }}
+}}
+exit 2;"#
+    );
+    let status = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-STA",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            &script,
+        ])
+        .status()
+        .map_err(|error| format!("failed to launch Windows screen snip: {error}"))?;
+    if !status.success() || !path.is_file() {
+        return Err("Screenshot selection was cancelled.".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+fn capture_area_to_path(_path: &Path) -> Result<(), String> {
+    Err("Screenshot capture is not supported on this platform.".to_string())
+}
+
+/// Hide the app, let the OS draw its native region-selection overlay, and
+/// return the selected PNG inline so it can be attached to a multimodal turn.
+#[tauri::command]
+async fn capture_vision_screenshot(app: tauri::AppHandle) -> Result<ScreenshotCapture, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+    window.hide().map_err(|error| error.to_string())?;
+
+    let result = tauri::async_runtime::spawn_blocking(|| {
+        std::thread::sleep(std::time::Duration::from_millis(180));
+        let path = screenshot_temp_path();
+        let captured = (|| {
+            capture_area_to_path(&path)?;
+            let bytes = std::fs::read(&path)
+                .map_err(|error| format!("failed to read captured screenshot: {error}"))?;
+            if bytes.is_empty() {
+                return Err("Captured screenshot is empty.".to_string());
+            }
+            Ok(ScreenshotCapture {
+                data_url: encode_png_data_url(&bytes),
+                mime_type: "image/png".to_string(),
+                name: "screenshot.png".to_string(),
+            })
+        })();
+        let _ = std::fs::remove_file(path);
+        captured
+    })
+    .await
+    .map_err(|error| format!("screenshot task failed: {error}"))?;
+
+    let _ = window.show();
+    let _ = window.set_focus();
+    result
 }
 
 // -----------------------------------------------------------------------------
@@ -338,8 +495,19 @@ fn main() {
             sidecar_ping,
             sidecar_call,
             frontend_log,
+            capture_vision_screenshot,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Omni Agent Desktop")
         .run(|_app, _event| {});
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_png_data_url;
+
+    #[test]
+    fn encodes_png_bytes_as_a_data_url() {
+        assert_eq!(encode_png_data_url(b"png"), "data:image/png;base64,cG5n");
+    }
 }

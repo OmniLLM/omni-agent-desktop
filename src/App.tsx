@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "./lib/runtime";
 import ChatPane from "./components/ChatPane";
-import Composer from "./components/Composer";
+import Composer, { type ComposerHandle } from "./components/Composer";
 import WelcomeScreen from "./components/WelcomeScreen";
 import ScheduledView from "./components/ScheduledView";
 import ToolApprovalPrompt from "./components/ToolApprovalPrompt";
@@ -16,7 +16,7 @@ import AppShell from "./components/AppShell";
 import { useAgent } from "./hooks/useAgent";
 import { useToasts } from "./hooks/useToasts";
 import { useTheme } from "./hooks/useTheme";
-import type { AppSettings, ProviderType, RunMode } from "./types/app";
+import type { AppSettings, ImageAttachment, ProviderType, RunMode } from "./types/app";
 import type { SlashContext, SlashCommand } from "./lib/slashCommands";
 import { applyWindowSize, normalizeWindowSize } from "./lib/windowSize";
 import { parseThemeMode } from "./utils/theme";
@@ -61,7 +61,7 @@ export default function App() {
   const settingsCloseRef = useRef<(() => Promise<void>) | null>(null);
   const showSettingsRef = useRef(false);
   const showHelpRef = useRef(false);
-  const composerRef = useRef<{ setText: (text: string) => void } | null>(null);
+  const composerRef = useRef<ComposerHandle | null>(null);
 
   useEffect(() => {
     showSettingsRef.current = showSettings;
@@ -128,11 +128,30 @@ export default function App() {
     setView("chat");
   };
 
-  const submit = (text: string) => {
+  const captureScreenshot = useCallback(async () => {
+    try {
+      const shot = await invoke<Omit<ImageAttachment, "id">>(
+        "capture_vision_screenshot",
+      );
+      const id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `shot-${Date.now()}`;
+      composerRef.current?.addImage({ ...shot, id });
+      pushToast("Screenshot attached");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.toLowerCase().includes("cancel")) {
+        pushToast(`Screenshot failed: ${message}`);
+      }
+    }
+  }, [pushToast]);
+
+  const submit = (text: string, images: ImageAttachment[] = []) => {
     // Precedence: an explicit `/agent` choice wins; otherwise fall back to the
     // Approve-for-me toggle (autopilot vs. ask), preserving prior behavior.
     const mode: RunMode = runMode ?? (approveForMe ? "autopilot" : "ask");
-    void send(text, mode);
+    void send(text, mode, images);
   };
 
   // Change provider/model from the composer picker and persist it, mirroring
@@ -177,6 +196,7 @@ export default function App() {
       openSettings: () => setShowSettings(true),
       openHelp: () => setShowHelp(true),
       openSkills: () => setShowSkills(true),
+      captureScreenshot,
       notify,
       toast: pushToast,
       loading,
@@ -187,6 +207,7 @@ export default function App() {
       renameSession,
       stop,
       compact,
+      captureScreenshot,
       notify,
       pushToast,
       loading,

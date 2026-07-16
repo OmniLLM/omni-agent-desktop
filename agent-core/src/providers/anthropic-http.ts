@@ -18,7 +18,7 @@ export function anthropicMessagesProvider(cfg: ProviderConfig): Provider {
       const body: Record<string, unknown> = {
         model: cfg.model,
         system,
-        messages: messages.map((m: Msg) => ({ role: m.role, content: m.content })),
+        messages: buildAnthropicMessages(messages),
         max_tokens: 4096,
       };
       if (tools.length > 0) body.tools = toAnthropicTools(tools);
@@ -36,6 +36,29 @@ export function anthropicMessagesProvider(cfg: ProviderConfig): Provider {
       return parseAnthropic((await r.json()) as unknown);
     },
   };
+}
+
+export function buildAnthropicMessages(messages: Msg[]): unknown[] {
+  return messages.map((m) => {
+    if (m.role !== "user" || !m.images?.length) {
+      return { role: m.role, content: m.content };
+    }
+    const content: unknown[] = [];
+    if (m.content.trim()) content.push({ type: "text", text: m.content });
+    for (const image of m.images) {
+      const match = /^data:([^;,]+);base64,(.+)$/s.exec(image.data_url);
+      if (!match) continue;
+      content.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: match[1] || image.mime_type,
+          data: match[2],
+        },
+      });
+    }
+    return { role: m.role, content };
+  });
 }
 
 function toAnthropicTools(tools: unknown[]): unknown[] {

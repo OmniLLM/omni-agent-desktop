@@ -12,7 +12,17 @@ import type { Msg, ParsedTurn, ToolCall } from "./types.js";
 /** Build the `input` array for a Responses request. The system prompt is sent
  * separately as `instructions`, so only user/assistant/tool turns go here. */
 export function buildResponsesInput(messages: Msg[]): unknown[] {
-  return messages.map((m) => ({ role: m.role, content: m.content }));
+  return messages.map((m) => {
+    if (m.role !== "user" || !m.images?.length) {
+      return { role: m.role, content: m.content };
+    }
+    const content: unknown[] = [];
+    if (m.content.trim()) content.push({ type: "input_text", text: m.content });
+    for (const image of m.images) {
+      content.push({ type: "input_image", image_url: image.data_url });
+    }
+    return { role: m.role, content };
+  });
 }
 
 /**

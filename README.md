@@ -66,7 +66,13 @@ Keep the original OmniLauncher desktop affordances:
 - Toggle/minimize the window from the shortcut.
 - Preserve launcher-style compact and expanded layouts.
 - Keep fast keyboard-first interaction.
-- Keep local screenshot/vision capture flows.
+- Keep local screenshot/vision capture flows. Run `/screenshot` (alias `/shot`)
+  in the composer to hide the window, draw an area with the OS-native selector
+  (Snip & Sketch on Windows, `screencapture -i` on macOS, gnome-screenshot /
+  Spectacle / scrot / ImageMagick on Linux), and attach the PNG to the input
+  box. The image is sent to the active model as a real vision block — OpenAI
+  `image_url`, Anthropic base64 `image`, or OpenAI Responses `input_image`
+  depending on the provider/API shape.
 - Keep preferences for hotkey, appearance, model/provider, and A2A endpoints.
 
 ## Configuration Direction

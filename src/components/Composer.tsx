@@ -13,10 +13,16 @@ import type {
   CopilotModel,
   ProviderConfig,
   ProviderType,
+  ImageAttachment,
 } from "../types/app";
 
+export interface ComposerHandle {
+  setText: (text: string) => void;
+  addImage: (image: ImageAttachment) => void;
+}
+
 interface Props {
-  onSend: (text: string) => void;
+  onSend: (text: string, images?: ImageAttachment[]) => void;
   disabled: boolean;
   settings: AppSettings | null;
   onModelChange?: (provider: ProviderType, model: string) => void;
@@ -31,7 +37,7 @@ interface Props {
   onCancel?: () => void;
   /** Programmatically set the composer's text (e.g. from the help panel picking
    * an argument command). Exposed via a ref so parents can drive the input. */
-  composerRef?: React.RefObject<{ setText: (text: string) => void } | null>;
+  composerRef?: React.RefObject<ComposerHandle | null>;
 }
 
 /** The leading-slash query is active only when the whole input is a single
@@ -89,6 +95,7 @@ export default function Composer({
   const [open, setOpen] = useState(false);
   const [models, setModels] = useState<string[]>([]);
   const [filter, setFilter] = useState("");
+  const [images, setImages] = useState<ImageAttachment[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -139,6 +146,10 @@ export default function Composer({
           el.setSelectionRange(next.length, next.length);
         });
       },
+      addImage: (image: ImageAttachment) => {
+        setImages((current) => [...current, image]);
+        requestAnimationFrame(() => textareaRef.current?.focus());
+      },
     }),
     [],
   );
@@ -170,7 +181,7 @@ export default function Composer({
 
   const submit = () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed && images.length === 0) return;
     // Intercept recognized slash commands before they reach the model. Unknown
     // `/foo` falls through to a normal send (matchCommand returns null).
     if (slash) {
@@ -180,8 +191,10 @@ export default function Composer({
         return;
       }
     }
-    onSend(text);
+    if (images.length > 0) onSend(text, images);
+    else onSend(text);
     setText("");
+    setImages([]);
   };
 
   // Pick the highlighted command from the autocomplete menu. If the command
@@ -293,6 +306,25 @@ export default function Composer({
   return (
     <div className="composer2">
       <div className="composer2__box">
+        {images.length > 0 ? (
+          <div className="composer2__attachments" aria-label="Attachments">
+            {images.map((image) => (
+              <div className="composer2__attachment" key={image.id}>
+                <img src={image.data_url} alt={image.name} />
+                <button
+                  type="button"
+                  aria-label={`Remove ${image.name}`}
+                  title="Remove attachment"
+                  onClick={() =>
+                    setImages((current) => current.filter((item) => item.id !== image.id))
+                  }
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {slashOpen ? (
           <SlashMenu
             commands={slashMatches}

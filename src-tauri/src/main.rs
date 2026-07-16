@@ -24,6 +24,45 @@ use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
+#[cfg(windows)]
+fn set_taskbar_icon(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        LoadImageW, SendMessageW, IMAGE_ICON, LR_DEFAULTSIZE, WM_SETICON,
+    };
+
+    const ICON_BIG: usize = 1;
+    // tauri-build embeds bundle.icon with this winres resource ID.
+    const APP_ICON_RESOURCE_ID: usize = 32512;
+
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    let module = unsafe { GetModuleHandleW(None) }.map_err(|error| error.to_string())?;
+    let icon = unsafe {
+        LoadImageW(
+            Some(module.into()),
+            PCWSTR(APP_ICON_RESOURCE_ID as *const u16),
+            IMAGE_ICON,
+            0,
+            0,
+            LR_DEFAULTSIZE,
+        )
+    }
+    .map_err(|error| error.to_string())?;
+
+    unsafe {
+        SendMessageW(
+            hwnd,
+            WM_SETICON,
+            Some(WPARAM(ICON_BIG)),
+            Some(LPARAM(icon.0 as isize)),
+        );
+    }
+
+    Ok(())
+}
+
 /// Tauri-managed handle to the running agent-core sidecar.
 pub struct SidecarState(pub Arc<Sidecar>);
 
@@ -260,6 +299,10 @@ fn main() {
                     }
                 }
                 Err(e) => log::warn!("failed to decode window icon: {e}"),
+            }
+            #[cfg(windows)]
+            if let Err(e) = set_taskbar_icon(&window) {
+                log::warn!("failed to set taskbar icon: {e}");
             }
             window.center().ok();
             window.show().ok();

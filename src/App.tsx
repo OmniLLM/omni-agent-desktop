@@ -7,6 +7,7 @@ import ScheduledView from "./components/ScheduledView";
 import ToolApprovalPrompt from "./components/ToolApprovalPrompt";
 import SettingsWindow from "./components/SettingsWindow";
 import HelpPanel from "./components/HelpPanel";
+import SkillsPanel from "./components/SkillsPanel";
 import ToastHost from "./components/ToastHost";
 import Sidebar, { type WorkspaceView } from "./components/Sidebar";
 import Titlebar from "./components/Titlebar";
@@ -33,6 +34,7 @@ export default function App() {
   const [view, setView] = useState<WorkspaceView>("chat");
   const [approveForMe, setApproveForMe] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showSkills, setShowSkills] = useState(false);
   // Agent run mode chosen via `/agent`. Seeded from persisted settings; falls
   // back to the Approve-for-me toggle when unset so behavior is unchanged for
   // users who never invoke the command.
@@ -174,6 +176,7 @@ export default function App() {
       compact,
       openSettings: () => setShowSettings(true),
       openHelp: () => setShowHelp(true),
+      openSkills: () => setShowSkills(true),
       notify,
       toast: pushToast,
       loading,
@@ -250,6 +253,10 @@ export default function App() {
               void cmd.run(ctx, "");
             }}
           />
+        ) : null}
+
+        {showSkills ? (
+          <SkillsPanel onClose={() => setShowSkills(false)} />
         ) : null}
 
         <div

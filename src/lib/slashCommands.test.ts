@@ -19,6 +19,7 @@ function makeContext(overrides: Partial<SlashContext> = {}): SlashContext {
     openHelp: vi.fn(),
     openSkills: vi.fn(),
     captureScreenshot: vi.fn(),
+    selectScreenText: vi.fn(),
     notify: vi.fn(),
     toast: vi.fn(),
     loading: false,
@@ -81,5 +82,14 @@ describe("command dispatch", () => {
     const screenshot = matchCommand("/screenshot")!;
     await screenshot.cmd.run(context, screenshot.arg);
     expect(context.captureScreenshot).toHaveBeenCalledOnce();
+  });
+
+  it("dispatches screen text selection by name and alias", async () => {
+    const context = makeContext();
+    const select = matchCommand("/select")!;
+    const ocr = matchCommand("/ocr")!;
+    expect(select.cmd).toBe(ocr.cmd);
+    await select.cmd.run(context, select.arg);
+    expect(context.selectScreenText).toHaveBeenCalledOnce();
   });
 });

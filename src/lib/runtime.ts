@@ -123,6 +123,7 @@ const WINDOW_LOCAL_COMMANDS = new Set<string>([
   "set_window_size_centered",
   "save_window_position",
   "capture_vision_screenshot",
+  "capture_region_text",
 ]);
 
 const TAURI_NATIVE_COMMANDS = new Set<string>([

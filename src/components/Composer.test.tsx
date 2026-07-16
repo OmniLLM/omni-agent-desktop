@@ -1,5 +1,5 @@
 import { createRef } from "react";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import Composer from "./Composer";
@@ -19,6 +19,7 @@ function makeSlash(overrides: Partial<SlashContext> = {}): SlashContext {
     openHelp: vi.fn(),
     openSkills: vi.fn(),
     captureScreenshot: vi.fn(),
+    selectScreenText: vi.fn(),
     notify: vi.fn(),
     toast: vi.fn(),
     loading: false,
@@ -215,10 +216,43 @@ describe("Composer", () => {
     expect(onSend).toHaveBeenCalledWith("/unknown thing");
   });
 
+  it("appends recognized text without replacing an existing draft", async () => {
+    const onSend = vi.fn();
+    const composerRef = createRef<{
+      setText: (text: string) => void;
+      insertText: (text: string) => void;
+      addImage: (image: {
+        id: string;
+        data_url: string;
+        mime_type: string;
+        name: string;
+      }) => void;
+    }>();
+    render(
+      <Composer
+        onSend={onSend}
+        disabled={false}
+        settings={makeSettings()}
+        composerRef={composerRef}
+      />,
+    );
+
+    act(() => {
+      composerRef.current?.setText("Explain this:");
+      composerRef.current?.insertText("Selected screen text");
+    });
+    const textbox = screen.getByRole("textbox");
+    expect(textbox).toHaveValue("Explain this:\nSelected screen text");
+
+    await userEvent.click(screen.getByRole("button", { name: /send/i }));
+    expect(onSend).toHaveBeenCalledWith("Explain this:\nSelected screen text");
+  });
+
   it("shows a captured screenshot in the input box and sends it to the agent", async () => {
     const onSend = vi.fn();
     const composerRef = createRef<{
       setText: (text: string) => void;
+      insertText: (text: string) => void;
       addImage: (image: {
         id: string;
         data_url: string;

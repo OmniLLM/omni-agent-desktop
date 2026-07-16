@@ -18,6 +18,7 @@ import type {
 
 export interface ComposerHandle {
   setText: (text: string) => void;
+  insertText: (text: string) => void;
   addImage: (image: ImageAttachment) => void;
 }
 
@@ -144,6 +145,19 @@ export default function Composer({
           if (!el) return;
           el.focus();
           el.setSelectionRange(next.length, next.length);
+        });
+      },
+      insertText: (next: string) => {
+        setText((current) => {
+          if (!current) return next;
+          return `${current.replace(/\s*$/, "")}\n${next}`;
+        });
+        requestAnimationFrame(() => {
+          const el = textareaRef.current;
+          if (!el) return;
+          el.focus();
+          const end = el.value.length;
+          el.setSelectionRange(end, end);
         });
       },
       addImage: (image: ImageAttachment) => {

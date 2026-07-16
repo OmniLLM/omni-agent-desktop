@@ -15,6 +15,7 @@ export interface SlashContext {
   openHelp: () => void;
   openSkills: () => void;
   captureScreenshot: () => void | Promise<void>;
+  selectScreenText: () => void | Promise<void>;
   /** Append an inline system notice to the transcript (durable, in-context UI). */
   notify: (message: string) => void;
   /** Show a transient, auto-dismissing toast (ephemeral confirmation). */
@@ -139,6 +140,14 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: "Select an area and attach it to the input box",
     aliases: ["shot"],
     run: (ctx) => ctx.captureScreenshot(),
+  },
+  {
+    name: "select",
+    kind: "action",
+    title: "Select screen text",
+    description: "Select a screen region and place recognized text in the message box",
+    aliases: ["ocr"],
+    run: (ctx) => ctx.selectScreenText(),
   },
 ];
 

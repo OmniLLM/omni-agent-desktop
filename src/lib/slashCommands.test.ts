@@ -17,6 +17,7 @@ function makeContext(overrides: Partial<SlashContext> = {}): SlashContext {
     compact: vi.fn(),
     openSettings: vi.fn(),
     openHelp: vi.fn(),
+    openSkills: vi.fn(),
     notify: vi.fn(),
     toast: vi.fn(),
     loading: false,

@@ -13,6 +13,7 @@ export interface SlashContext {
   compact: () => void | Promise<void>;
   openSettings: (tab?: SettingsTabId) => void;
   openHelp: () => void;
+  openSkills: () => void;
   /** Append an inline system notice to the transcript (durable, in-context UI). */
   notify: (message: string) => void;
   /** Show a transient, auto-dismissing toast (ephemeral confirmation). */
@@ -122,6 +123,13 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     title: "Help",
     description: "List available slash commands",
     run: (ctx) => ctx.openHelp(),
+  },
+  {
+    name: "skills",
+    kind: "ui",
+    title: "Show skills",
+    description: "List local skills and A2A skills available to this app",
+    run: (ctx) => ctx.openSkills(),
   },
 ];
 

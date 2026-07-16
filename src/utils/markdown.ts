@@ -53,7 +53,10 @@ export function renderTable(rows: string[]): string {
     html += "</tr>";
   }
   html += "</tbody></table>";
-  return html;
+  // Wrap the table so wide tables can break out of the reading column and/or
+  // scroll horizontally without stretching the surrounding prose. ChatPane
+  // measures `.md-table-wrap` after render and sets the breakout amount.
+  return `<div class="md-table-wrap">${html}</div>`;
 }
 
 export function renderMarkdown(text: string): string {

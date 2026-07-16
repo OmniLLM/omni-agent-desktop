@@ -28,8 +28,10 @@
   --radius: 12px;
   /* Shared conversation-column geometry. Every centered element in the chat
      view (messages, composer, approval prompt, working indicator) uses these
-     so their content edges align to a single column. */
-  --chat-column: 820px;
+     so their content edges align to a single column. Widened from 820px to
+     give tables and wide content more room while keeping prose and the
+     composer edge-aligned. */
+  --chat-column: 1040px;
   --chat-gutter: 24px;
 }
 

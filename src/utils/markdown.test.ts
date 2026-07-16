@@ -137,6 +137,7 @@ describe("renderTable", () => {
   it("renders a simple table with header and one row", () => {
     const rows = ["| Name | Age |", "| Alice | 30 |"];
     const html = renderTable(rows);
+    expect(html).toContain('<div class="md-table-wrap">');
     expect(html).toContain('<table class="md-table">');
     expect(html).toContain("<thead>");
     expect(html).toContain("<th>Name</th>");

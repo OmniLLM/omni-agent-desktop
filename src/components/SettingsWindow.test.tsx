@@ -287,7 +287,10 @@ describe("SettingsWindow window size presets", () => {
     await user.click(
       screen.getByRole("radio", { name: /compact.*720.*520/i }),
     );
-    expect(applyWindowSize).toHaveBeenCalledWith("compact");
+    expect(applyWindowSize).toHaveBeenCalledWith("compact", {
+      customWidth: 1280,
+      customHeight: 768,
+    });
     await user.click(screen.getByRole("button", { name: /save settings/i }));
     expect(invokeMock).toHaveBeenCalledWith(
       "save_settings_cmd",
@@ -305,7 +308,10 @@ describe("SettingsWindow window size presets", () => {
     await user.click(await screen.findByRole("button", { name: /appearance/i }));
     await user.click(screen.getByRole("radio", { name: /large.*1280.*720/i }));
     await user.click(screen.getByRole("button", { name: /close/i }));
-    expect(applyWindowSize).toHaveBeenLastCalledWith("standard");
+    expect(applyWindowSize).toHaveBeenLastCalledWith("standard", {
+      customWidth: undefined,
+      customHeight: undefined,
+    });
     expect(onClose).toHaveBeenCalled();
   });
 

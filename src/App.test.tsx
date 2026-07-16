@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import App from "./App";
 
@@ -8,8 +9,8 @@ vi.mock("./lib/windowSize", async (importOriginal) => {
   return { ...actual, applyWindowSize };
 });
 
-vi.mock("./lib/runtime", () => ({
-  invoke: vi.fn(async (cmd: string) => {
+const invoke = vi.hoisted(() =>
+  vi.fn(async (cmd: string) => {
     if (cmd === "get_settings")
       return {
         active_provider: "custom-provider",
@@ -31,8 +32,13 @@ vi.mock("./lib/runtime", () => ({
         backend_url: "",
         window_size: "compact",
       };
+    if (cmd === "capture_region_text") return { text: "Recognized text" };
     return undefined;
   }),
+);
+
+vi.mock("./lib/runtime", () => ({
+  invoke,
   listen: vi.fn(async () => () => {}),
   emit: vi.fn(async () => undefined),
 }));
@@ -64,10 +70,25 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
+  it("selects screen text with Ctrl+Shift+T and prefills the composer", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const textbox = await screen.findByPlaceholderText(/message the agent/i);
+    await user.keyboard("{Control>}{Shift>}t{/Shift}{/Control}");
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("capture_region_text"),
+    );
+    expect(textbox).toHaveValue("Recognized text");
+  });
+
   it("applies the saved window size after settings load", async () => {
     render(<App />);
     await waitFor(() =>
-      expect(applyWindowSize).toHaveBeenCalledWith("compact"),
+      expect(applyWindowSize).toHaveBeenCalledWith("compact", {
+        customWidth: undefined,
+        customHeight: undefined,
+      }),
     );
   });
 });

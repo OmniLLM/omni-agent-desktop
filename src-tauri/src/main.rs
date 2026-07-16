@@ -134,6 +134,11 @@ struct ScreenshotCapture {
     name: String,
 }
 
+#[derive(Serialize)]
+struct TextCapture {
+    text: String,
+}
+
 fn encode_png_data_url(bytes: &[u8]) -> String {
     format!("data:image/png;base64,{}", BASE64_STANDARD.encode(bytes))
 }
@@ -244,40 +249,115 @@ fn capture_area_to_path(_path: &Path) -> Result<(), String> {
     Err("Screenshot capture is not supported on this platform.".to_string())
 }
 
-/// Hide the app, let the OS draw its native region-selection overlay, and
-/// return the selected PNG inline so it can be attached to a multimodal turn.
-#[tauri::command]
-async fn capture_vision_screenshot(app: tauri::AppHandle) -> Result<ScreenshotCapture, String> {
+async fn capture_region_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
     window.hide().map_err(|error| error.to_string())?;
 
-    let result = tauri::async_runtime::spawn_blocking(|| {
+    let task = tauri::async_runtime::spawn_blocking(|| {
         std::thread::sleep(std::time::Duration::from_millis(180));
         let path = screenshot_temp_path();
-        let captured = (|| {
-            capture_area_to_path(&path)?;
-            let bytes = std::fs::read(&path)
-                .map_err(|error| format!("failed to read captured screenshot: {error}"))?;
-            if bytes.is_empty() {
-                return Err("Captured screenshot is empty.".to_string());
-            }
-            Ok(ScreenshotCapture {
-                data_url: encode_png_data_url(&bytes),
-                mime_type: "image/png".to_string(),
-                name: "screenshot.png".to_string(),
-            })
-        })();
-        let _ = std::fs::remove_file(path);
-        captured
+        if let Err(error) = capture_area_to_path(&path) {
+            let _ = std::fs::remove_file(&path);
+            return Err(error);
+        }
+        Ok(path)
     })
-    .await
-    .map_err(|error| format!("screenshot task failed: {error}"))?;
+    .await;
 
     let _ = window.show();
     let _ = window.set_focus();
-    result
+    task.map_err(|error| format!("screenshot task failed: {error}"))?
+}
+
+/// Hide the app, let the OS draw its native region-selection overlay, and
+/// return the selected PNG inline so it can be attached to a multimodal turn.
+#[tauri::command]
+async fn capture_vision_screenshot(app: tauri::AppHandle) -> Result<ScreenshotCapture, String> {
+    let path = capture_region_file(&app).await?;
+    let captured = (|| {
+        let bytes = std::fs::read(&path)
+            .map_err(|error| format!("failed to read captured screenshot: {error}"))?;
+        if bytes.is_empty() {
+            return Err("Captured screenshot is empty.".to_string());
+        }
+        Ok(ScreenshotCapture {
+            data_url: encode_png_data_url(&bytes),
+            mime_type: "image/png".to_string(),
+            name: "screenshot.png".to_string(),
+        })
+    })();
+    let _ = std::fs::remove_file(path);
+    captured
+}
+
+#[cfg(windows)]
+fn recognize_text(path: &Path) -> Result<String, String> {
+    use windows::core::HSTRING;
+    use windows::Graphics::Imaging::BitmapDecoder;
+    use windows::Media::Ocr::OcrEngine;
+    use windows::Storage::{FileAccessMode, StorageFile};
+
+    let path = path
+        .to_str()
+        .ok_or_else(|| "temporary screenshot path is not valid UTF-8".to_string())?;
+    let file = StorageFile::GetFileFromPathAsync(&HSTRING::from(path))
+        .map_err(|error| format!("failed to open screenshot for OCR: {error}"))?
+        .get()
+        .map_err(|error| format!("failed to open screenshot for OCR: {error}"))?;
+    let stream = file
+        .OpenAsync(FileAccessMode::Read)
+        .map_err(|error| format!("failed to read screenshot for OCR: {error}"))?
+        .get()
+        .map_err(|error| format!("failed to read screenshot for OCR: {error}"))?;
+    let decoder = BitmapDecoder::CreateAsync(&stream)
+        .map_err(|error| format!("failed to decode screenshot for OCR: {error}"))?
+        .get()
+        .map_err(|error| format!("failed to decode screenshot for OCR: {error}"))?;
+    let bitmap = decoder
+        .GetSoftwareBitmapAsync()
+        .map_err(|error| format!("failed to prepare screenshot for OCR: {error}"))?
+        .get()
+        .map_err(|error| format!("failed to prepare screenshot for OCR: {error}"))?;
+    let engine = OcrEngine::TryCreateFromUserProfileLanguages()
+        .map_err(|error| format!("Windows OCR is unavailable: {error}"))?;
+    let result = engine
+        .RecognizeAsync(&bitmap)
+        .map_err(|error| format!("failed to recognize screen text: {error}"))?
+        .get()
+        .map_err(|error| format!("failed to recognize screen text: {error}"))?;
+    let lines = result
+        .Lines()
+        .map_err(|error| format!("failed to read OCR result: {error}"))?;
+    let mut text = Vec::new();
+    for line in lines {
+        let value = line
+            .Text()
+            .map_err(|error| format!("failed to read OCR text: {error}"))?;
+        let value = value.to_string();
+        let value = value.trim();
+        if !value.is_empty() {
+            text.push(value.to_string());
+        }
+    }
+    Ok(text.join("\n"))
+}
+
+#[cfg(not(windows))]
+fn recognize_text(_path: &Path) -> Result<String, String> {
+    Err("Screen text selection is currently supported on Windows only.".to_string())
+}
+
+/// Select a screen region and recognize its text with the local OS OCR engine.
+#[tauri::command]
+async fn capture_region_text(app: tauri::AppHandle) -> Result<TextCapture, String> {
+    let path = capture_region_file(&app).await?;
+    let ocr_path = path.clone();
+    let task = tauri::async_runtime::spawn_blocking(move || recognize_text(&ocr_path)).await;
+    let _ = std::fs::remove_file(path);
+    task.map_err(|error| format!("OCR task failed: {error}"))?
+        .map(|text| TextCapture { text })
 }
 
 // -----------------------------------------------------------------------------
@@ -496,6 +576,7 @@ fn main() {
             sidecar_call,
             frontend_log,
             capture_vision_screenshot,
+            capture_region_text,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Omni Agent Desktop")

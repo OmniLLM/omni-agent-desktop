@@ -173,6 +173,7 @@ describe("command classification", () => {
     expect(isWindowLocalCommand("set_window_size_centered")).toBe(true);
     expect(isWindowLocalCommand("save_window_position")).toBe(true);
     expect(isWindowLocalCommand("capture_vision_screenshot")).toBe(true);
+    expect(isWindowLocalCommand("capture_region_text")).toBe(true);
   });
 
   it("treats business commands as not-local (go to backend)", () => {

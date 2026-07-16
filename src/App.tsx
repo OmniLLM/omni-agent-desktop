@@ -62,6 +62,7 @@ export default function App() {
   const showSettingsRef = useRef(false);
   const showHelpRef = useRef(false);
   const composerRef = useRef<ComposerHandle | null>(null);
+  const selectScreenTextRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     showSettingsRef.current = showSettings;
@@ -114,6 +115,13 @@ export default function App() {
       } else if ((e.ctrlKey || e.metaKey) && (e.key === "h" || e.key === "H")) {
         e.preventDefault();
         setCollapsed((v) => !v);
+      } else if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        (e.key === "t" || e.key === "T")
+      ) {
+        e.preventDefault();
+        void selectScreenTextRef.current();
       } else if (e.key === "Escape") {
         if (showHelpRef.current) setShowHelp(false);
         else if (showSettingsRef.current) requestCloseSettings();
@@ -146,6 +154,26 @@ export default function App() {
       }
     }
   }, [pushToast]);
+
+  const selectScreenText = useCallback(async () => {
+    try {
+      const capture = await invoke<{ text: string }>("capture_region_text");
+      const text = capture.text.trim();
+      if (!text) {
+        pushToast("No text found in selection");
+        return;
+      }
+      composerRef.current?.insertText(text);
+      pushToast("Text extracted — review and send");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.toLowerCase().includes("cancel")) {
+        pushToast(`Text selection failed: ${message}`);
+      }
+    }
+  }, [pushToast]);
+
+  selectScreenTextRef.current = selectScreenText;
 
   const submit = (text: string, images: ImageAttachment[] = []) => {
     // Precedence: an explicit `/agent` choice wins; otherwise fall back to the
@@ -197,6 +225,7 @@ export default function App() {
       openHelp: () => setShowHelp(true),
       openSkills: () => setShowSkills(true),
       captureScreenshot,
+      selectScreenText,
       notify,
       toast: pushToast,
       loading,
@@ -208,6 +237,7 @@ export default function App() {
       stop,
       compact,
       captureScreenshot,
+      selectScreenText,
       notify,
       pushToast,
       loading,

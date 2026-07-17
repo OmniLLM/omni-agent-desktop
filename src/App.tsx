@@ -163,6 +163,10 @@ export default function App() {
   }, [dismissScreenCapture, pushToast]);
 
   const selectScreenText = useCallback(async () => {
+    if (!settings?.screen_text_selection_enabled) {
+      pushToast("Screen text selection is disabled in Settings → General");
+      return;
+    }
     try {
       const capture = await invoke<{ text: string; cleanupToken?: string }>(
         "capture_region_text",
@@ -182,7 +186,7 @@ export default function App() {
         pushToast(`Text selection failed: ${message}`);
       }
     }
-  }, [dismissScreenCapture, pushToast]);
+  }, [dismissScreenCapture, pushToast, settings?.screen_text_selection_enabled]);
 
   selectScreenTextRef.current = selectScreenText;
 

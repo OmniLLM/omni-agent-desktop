@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "./App";
 
 const applyWindowSize = vi.hoisted(() => vi.fn(async () => undefined));
@@ -9,6 +9,7 @@ vi.mock("./lib/windowSize", async (importOriginal) => {
   return { ...actual, applyWindowSize };
 });
 
+const screenTextSelectionEnabled = vi.hoisted(() => ({ current: true }));
 const invoke = vi.hoisted(() =>
   vi.fn(async (cmd: string) => {
     if (cmd === "get_settings")
@@ -25,6 +26,7 @@ const invoke = vi.hoisted(() =>
         ai_max_retry_attempts: 3,
         ai_retry_base_delay_ms: 2000,
         ai_loop_detector_enabled: true,
+        screen_text_selection_enabled: screenTextSelectionEnabled.current,
         theme: "system",
         hotkey: "Ctrl+Shift+O",
         max_results: 10,
@@ -45,6 +47,11 @@ vi.mock("./lib/runtime", () => ({
 }));
 
 describe("App", () => {
+  beforeEach(() => {
+    screenTextSelectionEnabled.current = true;
+    invoke.mockClear();
+  });
+
   it("renders the workspace composer and no launcher search", async () => {
     render(<App />);
     expect(
@@ -93,6 +100,19 @@ describe("App", () => {
       ([cmd]) => cmd === "dismiss_screen_capture",
     );
     expect(dismissCall).toBeGreaterThan(captureCall);
+  });
+
+  it("does not start screen text selection when the setting is disabled", async () => {
+    screenTextSelectionEnabled.current = false;
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByPlaceholderText(/message the agent/i);
+    await user.keyboard("{Control>}{Shift>}t{/Shift}{/Control}");
+
+    expect(invoke).not.toHaveBeenCalledWith("capture_region_text");
+    expect(
+      await screen.findByText(/screen text selection is disabled/i),
+    ).toBeInTheDocument();
   });
 
   it("applies the saved window size after settings load", async () => {

@@ -54,6 +54,7 @@ export interface AppSettings {
   ai_max_retry_attempts: number;
   ai_retry_base_delay_ms: number;
   ai_loop_detector_enabled: boolean;
+  screen_text_selection_enabled: boolean;
   /** How long to poll an A2A task for a terminal result before giving up, in
    * seconds. Separate from `ai_timeout_secs` (the provider HTTP timeout): A2A
    * skills can run far longer than a single model request. */
@@ -102,6 +103,7 @@ export function defaultSettings(): AppSettings {
     ai_max_retry_attempts: 3,
     ai_retry_base_delay_ms: 2000,
     ai_loop_detector_enabled: true,
+    screen_text_selection_enabled: true,
     a2a_timeout_secs: 120,
     theme: "system",
     hotkey: "Ctrl+Shift+O",

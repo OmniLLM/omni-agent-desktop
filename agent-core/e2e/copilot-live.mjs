@@ -26,7 +26,7 @@
  *
  * Usage:
  *   bun agent-core/e2e/copilot-live.mjs
- *   bun agent-core/e2e/copilot-live.mjs --model gpt-5.5        # force one model
+ *   bun agent-core/e2e/copilot-live.mjs --model gpt-5.5 --vision # include image input
  *   bun agent-core/e2e/copilot-live.mjs --max-per-family 2 --json
  *   OMNI_AGENT_INSECURE_TLS=1 bun agent-core/e2e/copilot-live.mjs  # corp proxy
  *
@@ -50,6 +50,8 @@ const { selectCopilotShape } = await import(
 const KEYRING_SERVICE = "omni-agent-desktop";
 const TOKEN_NAME = "github-copilot.token";
 const PROMPT = 'Reply with exactly the two characters: OK';
+const TINY_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
 // A sample tool in OpenAI Chat Completions shape — the SAME shape agent-core's
 // real run loop passes. Exercising a tool-enabled turn is essential: the
@@ -68,10 +70,17 @@ const SAMPLE_TOOLS = [
 ];
 
 function parseArgs(argv) {
-  const opts = { model: "", maxPerFamily: 1, json: false, insecureTls: false };
+  const opts = {
+    model: "",
+    maxPerFamily: 1,
+    json: false,
+    insecureTls: false,
+    vision: false,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--json") opts.json = true;
+    else if (a === "--vision") opts.vision = true;
     else if (a === "--insecure-tls") opts.insecureTls = true;
     else if (a === "--help" || a === "-h") opts.help = true;
     else if (a === "--model") opts.model = argv[++i] ?? "";
@@ -147,7 +156,7 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) {
     process.stdout.write(
-      "Usage: bun agent-core/e2e/copilot-live.mjs [--model <id>] [--max-per-family <n>] [--insecure-tls] [--json]\n",
+      "Usage: bun agent-core/e2e/copilot-live.mjs [--model <id>] [--max-per-family <n>] [--vision] [--insecure-tls] [--json]\n",
     );
     return 0;
   }
@@ -192,6 +201,29 @@ async function main() {
       await provider.infer("You are a terse test probe. Use a tool if helpful.", [
         { role: "user", content: "What time is it? Call the tool." },
       ], SAMPLE_TOOLS);
+
+      // 3) Optional vision turn: proves Copilot's /responses image schema.
+      if (opts.vision && t.shape !== "responses") {
+        throw new Error("--vision requires a responses-model target");
+      }
+      if (opts.vision) {
+        const vision = await provider.infer("You are a terse test probe.", [
+          {
+            role: "user",
+            content: "What is in this image?",
+            images: [
+              {
+                data_url: TINY_PNG,
+                mime_type: "image/png",
+                name: "pixel.png",
+              },
+            ],
+          },
+        ], []);
+        if (!(vision?.text ?? "").trim()) {
+          throw new Error("empty response (vision turn)");
+        }
+      }
 
       results.push({
         model: t.id,

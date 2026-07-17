@@ -75,6 +75,7 @@ const realSettings: AppSettings = {
   ai_max_retry_attempts: 7,
   ai_retry_base_delay_ms: 1500,
   ai_loop_detector_enabled: true,
+  screen_text_selection_enabled: true,
   a2a_timeout_secs: 240,
   theme: "dark",
   hotkey: "Ctrl+Shift+O",
@@ -328,6 +329,36 @@ describe("SettingsWindow window size presets", () => {
     expect(
       screen.getByRole("radio", { name: /standard.*960.*640/i }),
     ).toBeChecked();
+  });
+});
+
+describe("SettingsWindow screen text selection", () => {
+  it("saves the disabled screen text selection setting", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_settings") return realSettings;
+      if (cmd === "list_models") return ["gpt-5.4"];
+      return undefined;
+    });
+    const user = userEvent.setup();
+    const SettingsWindow = await importSettingsWindow();
+    render(<SettingsWindow />);
+
+    await user.click(await screen.findByRole("button", { name: /general/i }));
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /enable selecting screen text with the mouse/i,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_settings_cmd",
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          screen_text_selection_enabled: false,
+        }),
+      }),
+    );
   });
 });
 

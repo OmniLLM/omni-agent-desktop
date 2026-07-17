@@ -1291,6 +1291,33 @@ export default function SettingsWindow({
                       </span>
                     )}
                   </div>
+                  <div style={rowStyle()}>
+                    <span style={rowLabelStyle}>Screen text selection</span>
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        cursor: "pointer",
+                      }}
+                      title="When enabled, Ctrl/Cmd+Shift+T or /select opens a mouse-drag region selector and inserts recognized text into the message box"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={settings.screen_text_selection_enabled}
+                        onChange={(e) =>
+                          setSettings(
+                            (s) =>
+                              s && {
+                                ...s,
+                                screen_text_selection_enabled: e.target.checked,
+                              },
+                          )
+                        }
+                      />
+                      <span>Enable selecting screen text with the mouse</span>
+                    </label>
+                  </div>
                   <div style={rowStyle(true)}>
                     <span style={rowLabelStyle}>Max Results</span>
                     <input

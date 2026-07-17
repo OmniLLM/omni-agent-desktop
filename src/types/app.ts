@@ -172,6 +172,8 @@ export interface AppSettings {
   /** When true (default), the agentic tool loop halts after detecting three
    * identical (request, result) iterations in a row. */
   ai_loop_detector_enabled: boolean;
+  /** Enables mouse-drag region OCR through Ctrl/Cmd+Shift+T and /select. */
+  screen_text_selection_enabled: boolean;
   /** How long to poll an A2A task for a terminal result before giving up, in
    * seconds. Distinct from `ai_timeout_secs` (the provider HTTP timeout) —
    * delegated A2A skills can run far longer than a single model request. */

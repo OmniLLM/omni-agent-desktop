@@ -32,7 +32,8 @@ const invoke = vi.hoisted(() =>
         backend_url: "",
         window_size: "compact",
       };
-    if (cmd === "capture_region_text") return { text: "Recognized text" };
+    if (cmd === "capture_region_text")
+      return { text: "Recognized text", cleanupToken: "capture-1" };
     return undefined;
   }),
 );
@@ -80,6 +81,18 @@ describe("App", () => {
       expect(invoke).toHaveBeenCalledWith("capture_region_text"),
     );
     expect(textbox).toHaveValue("Recognized text");
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("dismiss_screen_capture", {
+        cleanupToken: "capture-1",
+      }),
+    );
+    const captureCall = invoke.mock.calls.findIndex(
+      ([cmd]) => cmd === "capture_region_text",
+    );
+    const dismissCall = invoke.mock.calls.findIndex(
+      ([cmd]) => cmd === "dismiss_screen_capture",
+    );
+    expect(dismissCall).toBeGreaterThan(captureCall);
   });
 
   it("applies the saved window size after settings load", async () => {

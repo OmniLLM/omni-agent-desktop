@@ -124,6 +124,7 @@ const WINDOW_LOCAL_COMMANDS = new Set<string>([
   "save_window_position",
   "capture_vision_screenshot",
   "capture_region_text",
+  "dismiss_screen_capture",
 ]);
 
 const TAURI_NATIVE_COMMANDS = new Set<string>([

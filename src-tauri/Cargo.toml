@@ -26,7 +26,9 @@ windows = { version = "0.61.3", features = [
   "Media_Ocr",
   "Storage",
   "Storage_Streams",
+  "Win32_Foundation",
   "Win32_System_LibraryLoader",
+  "Win32_System_Threading",
   "Win32_UI_WindowsAndMessaging",
 ] }
 

@@ -174,6 +174,7 @@ describe("command classification", () => {
     expect(isWindowLocalCommand("save_window_position")).toBe(true);
     expect(isWindowLocalCommand("capture_vision_screenshot")).toBe(true);
     expect(isWindowLocalCommand("capture_region_text")).toBe(true);
+    expect(isWindowLocalCommand("dismiss_screen_capture")).toBe(true);
   });
 
   it("treats business commands as not-local (go to backend)", () => {

@@ -136,16 +136,23 @@ export default function App() {
     setView("chat");
   };
 
+  const dismissScreenCapture = useCallback((cleanupToken?: string) => {
+    if (!cleanupToken) return;
+    void invoke("dismiss_screen_capture", { cleanupToken }).catch(() => {});
+  }, []);
+
   const captureScreenshot = useCallback(async () => {
     try {
-      const shot = await invoke<Omit<ImageAttachment, "id">>(
-        "capture_vision_screenshot",
-      );
+      const shot = await invoke<
+        Omit<ImageAttachment, "id"> & { cleanupToken?: string }
+      >("capture_vision_screenshot");
+      const { cleanupToken, ...image } = shot;
       const id =
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
           : `shot-${Date.now()}`;
-      composerRef.current?.addImage({ ...shot, id });
+      composerRef.current?.addImage({ ...image, id });
+      dismissScreenCapture(cleanupToken);
       pushToast("Screenshot attached");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -153,17 +160,21 @@ export default function App() {
         pushToast(`Screenshot failed: ${message}`);
       }
     }
-  }, [pushToast]);
+  }, [dismissScreenCapture, pushToast]);
 
   const selectScreenText = useCallback(async () => {
     try {
-      const capture = await invoke<{ text: string }>("capture_region_text");
+      const capture = await invoke<{ text: string; cleanupToken?: string }>(
+        "capture_region_text",
+      );
       const text = capture.text.trim();
       if (!text) {
+        dismissScreenCapture(capture.cleanupToken);
         pushToast("No text found in selection");
         return;
       }
       composerRef.current?.insertText(text);
+      dismissScreenCapture(capture.cleanupToken);
       pushToast("Text extracted — review and send");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -171,7 +182,7 @@ export default function App() {
         pushToast(`Text selection failed: ${message}`);
       }
     }
-  }, [pushToast]);
+  }, [dismissScreenCapture, pushToast]);
 
   selectScreenTextRef.current = selectScreenText;
 

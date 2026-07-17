@@ -92,6 +92,8 @@ impl Sidecar {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
+        #[cfg(windows)]
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         let mut child = cmd.spawn()?;
         let pid = child.id().unwrap_or(0);
         log::info!("agent-core sidecar spawned (pid={pid})");

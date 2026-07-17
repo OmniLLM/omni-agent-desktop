@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import mainRsSource from "../../src-tauri/src/main.rs?raw";
+import sidecarRsSource from "../../src-tauri/src/sidecar.rs?raw";
 import { isWindowLocalCommand, invoke, getBackendMode, listen, emit, ensureBackendToken, __resetMockScheduler } from "./runtime";
 
 // ---------------------------------------------------------------------------
@@ -886,6 +887,10 @@ describe("local Tauri events in HTTP mode", () => {
 describe("Windows release shell configuration", () => {
   it("declares the Windows subsystem so the frontend does not open a console window", () => {
     expect(mainRsSource).toContain("cfg_attr(not(debug_assertions), windows_subsystem = \"windows\")");
+  });
+
+  it("starts the agent-core sidecar without allocating a console window", () => {
+    expect(sidecarRsSource).toContain("creation_flags(0x0800_0000)");
   });
 });
 

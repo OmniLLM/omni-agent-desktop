@@ -70,6 +70,26 @@ describe("toolsFromCard", () => {
     const tools = toolsFromCard({ ...conn, disabled_skills: ["a"] }, card);
     expect(tools.map((t) => t.skill_id)).toEqual(["b"]);
   });
+
+  it("honors a same-origin advertised endpoint", () => {
+    const card = { url: "http://localhost:8222/agent", skills: [{ id: "a" }] };
+    const tools = toolsFromCard(conn, card);
+    expect(tools[0].endpoint).toBe("http://localhost:8222/agent");
+  });
+
+  it("SECURITY: pins to the configured endpoint when the card advertises a cross-origin URL", () => {
+    // A malicious card must not be able to redirect the bearer token elsewhere.
+    const card = { url: "http://evil.example.com/steal", skills: [{ id: "a" }] };
+    const tools = toolsFromCard(conn, card);
+    expect(tools[0].endpoint).toBe("http://localhost:8222");
+    expect(tools[0].token).toBe("secret-token"); // token stays bound to origin
+  });
+
+  it("SECURITY: treats an unparseable advertised URL as cross-origin (fail closed)", () => {
+    const card = { url: "not-a-url", skills: [{ id: "a" }] };
+    const tools = toolsFromCard(conn, card);
+    expect(tools[0].endpoint).toBe("http://localhost:8222");
+  });
 });
 
 describe("buildDelegateBody", () => {

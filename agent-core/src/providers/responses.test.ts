@@ -1,6 +1,26 @@
 import { describe, expect, it } from "bun:test";
 import { buildResponsesInput, toResponsesTools, parseResponses } from "./responses.js";
 
+describe("buildResponsesInput tool-call continuation", () => {
+  it("emits function_call and function_call_output items keyed by call_id", () => {
+    expect(
+      buildResponsesInput([
+        { role: "user", content: "what time" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [{ id: "fc_1", name: "get_time", args: { tz: "utc" } }],
+        },
+        { role: "tool", content: "12:00", tool_call_id: "fc_1" },
+      ]),
+    ).toEqual([
+      { role: "user", content: "what time" },
+      { type: "function_call", call_id: "fc_1", name: "get_time", arguments: '{"tz":"utc"}' },
+      { type: "function_call_output", call_id: "fc_1", output: "12:00" },
+    ]);
+  });
+});
+
 describe("buildResponsesInput", () => {
   it("converts user screenshots to Responses input_image blocks", () => {
     expect(

@@ -43,6 +43,28 @@ export function buildMessages(system: string, messages: Msg[]): unknown[] {
   const out: unknown[] = [];
   if (system.trim().length) out.push({ role: "system", content: system });
   for (const m of messages) {
+    // Assistant turn that requested tool calls → Chat Completions `tool_calls`.
+    if (m.role === "assistant" && m.tool_calls?.length) {
+      out.push({
+        role: "assistant",
+        content: m.content || null,
+        tool_calls: m.tool_calls.map((c) => ({
+          id: c.id,
+          type: "function",
+          function: { name: c.name, arguments: JSON.stringify(c.args ?? {}) },
+        })),
+      });
+      continue;
+    }
+    // Tool result turn → role:"tool" carrying the originating tool_call_id.
+    if (m.role === "tool") {
+      out.push({
+        role: "tool",
+        tool_call_id: m.tool_call_id ?? "",
+        content: m.content,
+      });
+      continue;
+    }
     if (m.role !== "user" || !m.images?.length) {
       out.push({ role: m.role, content: m.content });
       continue;

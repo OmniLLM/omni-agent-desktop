@@ -40,6 +40,29 @@ export function anthropicMessagesProvider(cfg: ProviderConfig): Provider {
 
 export function buildAnthropicMessages(messages: Msg[]): unknown[] {
   return messages.map((m) => {
+    // Assistant turn that requested tool calls → assistant `tool_use` blocks.
+    if (m.role === "assistant" && m.tool_calls?.length) {
+      const content: unknown[] = [];
+      if (m.content.trim()) content.push({ type: "text", text: m.content });
+      for (const c of m.tool_calls) {
+        content.push({ type: "tool_use", id: c.id, name: c.name, input: c.args ?? {} });
+      }
+      return { role: "assistant", content };
+    }
+    // Tool result turn → a USER message carrying a `tool_result` block. This is
+    // the Anthropic-correct shape and avoids two consecutive user text turns.
+    if (m.role === "tool") {
+      return {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: m.tool_call_id ?? "",
+            content: m.content,
+          },
+        ],
+      };
+    }
     if (m.role !== "user" || !m.images?.length) {
       return { role: m.role, content: m.content };
     }

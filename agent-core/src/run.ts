@@ -4,6 +4,7 @@
  * Shared execution path for foreground and scheduled runs. Emits progress
  * events through the RPC event channel and gates mutating/A2A tools by RunMode.
  */
+import { randomUUID } from "node:crypto";
 import type { ApprovalDecision } from "./approvals.js";
 import { approvals } from "./approvals.js";
 import { classify, executeTool, LOCAL_TOOLS } from "./tools.js";
@@ -90,7 +91,6 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
   const messages = [...input.messages];
   const max = Math.max(1, input.maxIterations);
   const sessionAllow = new Set<string>();
-  let counter = 0;
 
   const throwIfAborted = () => {
     if (signal?.aborted) throw new CancelledError();
@@ -114,10 +114,24 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
     if (turn.text.trim().length) {
       emit("agent://thought", { text: turn.text });
     }
-    for (const call of turn.tool_calls) {
+
+    // Assign each parsed tool call a stable id: preserve the provider-native id
+    // end to end; only mint a uuid when the provider omitted one. This id is
+    // carried through the emitted events, the assistant tool-call turn, and the
+    // matching tool-result turn so every provider can pair call ⇄ result.
+    const calls: ToolCall[] = turn.tool_calls.map((c) => ({
+      ...c,
+      id: c.id && c.id.length ? c.id : randomUUID(),
+    }));
+
+    // Record the assistant turn that REQUESTED the tools. Provider adapters
+    // serialize this into their wire shape (chat: assistant + tool_calls;
+    // anthropic: assistant tool_use blocks; responses: function_call items).
+    messages.push({ role: "assistant", content: turn.text, tool_calls: calls });
+
+    for (const call of calls) {
       throwIfAborted();
-      counter += 1;
-      const callId = `call-${counter}`;
+      const callId = call.id;
       const mutating = isA2A(call.name) || isMutating(call.name);
       emit("agent://tool-call", { call_id: callId, tool: call.name, args: call.args });
 
@@ -126,14 +140,15 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
       if (g === "auto") {
         decision = "approve";
       } else if (g === "block") {
-        messages.push({
-          role: "user",
-          content: `[tool ${call.name} blocked in plan mode]`,
-        });
         emit("agent://tool-result", {
           call_id: callId,
           tool: call.name,
           result: "blocked in plan mode",
+        });
+        messages.push({
+          role: "tool",
+          content: `[tool ${call.name} blocked in plan mode]`,
+          tool_call_id: callId,
         });
         continue;
       } else {
@@ -163,8 +178,9 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
       }
       emit("agent://tool-result", { call_id: callId, tool: call.name, result });
       messages.push({
-        role: "user",
-        content: `[tool ${call.name} result]\n${result}`,
+        role: "tool",
+        content: result,
+        tool_call_id: callId,
       });
     }
   }

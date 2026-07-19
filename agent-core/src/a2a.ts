@@ -48,12 +48,36 @@ export async function fetchCard(endpoint: string, token: string): Promise<unknow
   return r.json();
 }
 
+/**
+ * Returns true when `candidate` targets the same origin (scheme+host+port) as
+ * `configured`. Used to decide whether a discovered card's advertised endpoint
+ * may inherit the connection's bearer token. Unparseable URLs are treated as
+ * NOT same-origin (fail closed).
+ */
+export function sameOrigin(configured: string, candidate: string): boolean {
+  try {
+    const a = new URL(configured);
+    const b = new URL(candidate);
+    return a.protocol === b.protocol && a.host === b.host;
+  } catch {
+    return false;
+  }
+}
+
 export function toolsFromCard(conn: A2aConnection, card: unknown): A2aTool[] {
   const c = card as { url?: string; endpoint?: string; skills?: Array<Record<string, unknown>> };
-  const cardEndpoint =
+  const advertised =
     typeof c.url === "string" && c.url.trim() ? c.url.trim() :
     typeof c.endpoint === "string" && c.endpoint.trim() ? c.endpoint.trim() :
-    conn.endpoint;
+    "";
+  // SECURITY: a discovered agent card can advertise its own execution URL. If we
+  // blindly delegated to it we would ship the connection's bearer token to an
+  // attacker-controlled origin. Only honor the advertised endpoint when it is
+  // the same origin as the configured one; otherwise pin to the configured
+  // endpoint (and never leak the token cross-origin). Cross-origin redirection
+  // should require the user to reconfigure/approve the connection explicitly.
+  const cardEndpoint =
+    advertised && sameOrigin(conn.endpoint, advertised) ? advertised : conn.endpoint;
   const out: A2aTool[] = [];
   for (const skill of c.skills ?? []) {
     const skillId =

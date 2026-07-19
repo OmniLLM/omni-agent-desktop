@@ -91,6 +91,13 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
   const messages = [...input.messages];
   const max = Math.max(1, input.maxIterations);
   const sessionAllow = new Set<string>();
+  // Globally-unique per-run id. Approval/event wire tokens are namespaced with
+  // it (`<runId>:<callId>`) so a decision from one session can never settle a
+  // concurrently-running tool in another session that happens to share a
+  // provider call id. The provider-native call id is still used unchanged for
+  // message-history correlation (tool_calls / tool_call_id).
+  const runId = randomUUID();
+  const wireId = (callId: string) => `${runId}:${callId}`;
 
   const throwIfAborted = () => {
     if (signal?.aborted) throw new CancelledError();
@@ -132,8 +139,12 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
     for (const call of calls) {
       throwIfAborted();
       const callId = call.id;
+      // Wire token for UI-facing events + approval registry: globally unique so
+      // the frontend echoes it back to `agent.approve` and only THIS run's
+      // pending approval can be settled by it. History still uses `callId`.
+      const evId = wireId(callId);
       const mutating = isA2A(call.name) || isMutating(call.name);
-      emit("agent://tool-call", { call_id: callId, tool: call.name, args: call.args });
+      emit("agent://tool-call", { call_id: evId, tool: call.name, args: call.args });
 
       const g = gate(mode, mutating);
       let decision: ApprovalDecision;
@@ -141,7 +152,7 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
         decision = "approve";
       } else if (g === "block") {
         emit("agent://tool-result", {
-          call_id: callId,
+          call_id: evId,
           tool: call.name,
           result: "blocked in plan mode",
         });
@@ -157,11 +168,11 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
           decision = "approve";
         } else {
           emit("agent://tool-approval-request", {
-            call_id: callId,
+            call_id: evId,
             tool: call.name,
             args: call.args,
           });
-          decision = await waitApproval(callId, approvalTimeoutMs);
+          decision = await waitApproval(evId, approvalTimeoutMs);
         }
       }
 
@@ -176,7 +187,7 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
           result = `error: ${(e as Error).message}`;
         }
       }
-      emit("agent://tool-result", { call_id: callId, tool: call.name, result });
+      emit("agent://tool-result", { call_id: evId, tool: call.name, result });
       messages.push({
         role: "tool",
         content: result,

@@ -10,16 +10,22 @@ export interface ImageAttachment {
   name?: string;
 }
 
-export interface Msg {
-  role: "user" | "assistant" | "system" | "tool";
-  content: string;
-  images?: ImageAttachment[];
-}
-
 export interface ToolCall {
   id: string;
   name: string;
   args: Record<string, unknown>;
+}
+
+export interface Msg {
+  role: "user" | "assistant" | "system" | "tool";
+  content: string;
+  images?: ImageAttachment[];
+  /** Present on an assistant turn that requested tool calls. Each entry keeps
+   * the provider-native tool-call id so results can be correlated. */
+  tool_calls?: ToolCall[];
+  /** Present on a `role: "tool"` result turn. Matches the `id` of the
+   * originating {@link ToolCall} so the provider can pair call ⇄ result. */
+  tool_call_id?: string;
 }
 
 export interface ParsedTurn {

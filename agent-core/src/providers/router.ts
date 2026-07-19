@@ -20,8 +20,9 @@ import { anthropicMessagesProvider } from "./anthropic-http.js";
 import { chatCompletionsProvider } from "./chat-completions.js";
 import { azureFoundryProvider } from "./azure.js";
 import { copilotProvider } from "./copilot.js";
+import { responsesProvider } from "./responses.js";
 
-export type ProviderRoute = "anthropic-http" | "chat-http" | "azure" | "copilot";
+export type ProviderRoute = "anthropic-http" | "chat-http" | "responses-http" | "azure" | "copilot";
 
 export function activeConfig(settings: AppSettings): { type: ProviderType; cfg: ProviderConfig } {
   const type = settings.active_provider;
@@ -46,6 +47,12 @@ export function pickProvider(settings: AppSettings, copilotToken: string | null)
       `agent-core: provider -> anthropic-http (custom anthropic-messages, model=${cfg.model})\n`,
     );
     return anthropicMessagesProvider(cfg);
+  }
+  if (cfg.api_shape === "openai-responses") {
+    process.stderr.write(
+      `agent-core: provider -> responses-http (custom openai-responses, model=${cfg.model})\n`,
+    );
+    return responsesProvider(cfg);
   }
   process.stderr.write(
     `agent-core: provider -> chat-http (custom ${cfg.api_shape}, model=${cfg.model})\n`,

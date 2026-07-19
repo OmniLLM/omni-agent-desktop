@@ -7,22 +7,50 @@
  * `output[].content[].text`, and tool calls as `output[]` items of type
  * `function_call`.
  */
-import type { Msg, ParsedTurn, ToolCall } from "./types.js";
+import { httpFetch as fetch } from "../http.js";
+import type { ProviderConfig } from "../settings.js";
+import type { Msg, ParsedTurn, Provider, ToolCall } from "./types.js";
+import { normalizeEndpoint } from "./chat-completions.js";
 
 /** Build the `input` array for a Responses request. The system prompt is sent
  * separately as `instructions`, so only user/assistant/tool turns go here. */
 export function buildResponsesInput(messages: Msg[]): unknown[] {
-  return messages.map((m) => {
+  const out: unknown[] = [];
+  for (const m of messages) {
+    // Assistant turn that requested tool calls → `function_call` input items.
+    if (m.role === "assistant" && m.tool_calls?.length) {
+      if (m.content.trim()) out.push({ role: "assistant", content: m.content });
+      for (const c of m.tool_calls) {
+        out.push({
+          type: "function_call",
+          call_id: c.id,
+          name: c.name,
+          arguments: JSON.stringify(c.args ?? {}),
+        });
+      }
+      continue;
+    }
+    // Tool result turn → a `function_call_output` item keyed by call_id.
+    if (m.role === "tool") {
+      out.push({
+        type: "function_call_output",
+        call_id: m.tool_call_id ?? "",
+        output: m.content,
+      });
+      continue;
+    }
     if (m.role !== "user" || !m.images?.length) {
-      return { role: m.role, content: m.content };
+      out.push({ role: m.role, content: m.content });
+      continue;
     }
     const content: unknown[] = [];
     if (m.content.trim()) content.push({ type: "input_text", text: m.content });
     for (const image of m.images) {
       content.push({ type: "input_image", image_url: image.data_url });
     }
-    return { role: m.role, content };
-  });
+    out.push({ role: m.role, content });
+  }
+  return out;
 }
 
 /**
@@ -109,4 +137,38 @@ export function parseResponses(body: unknown): ParsedTurn {
   }
 
   return { text, tool_calls: toolCalls };
+}
+
+/**
+ * OpenAI Responses HTTP provider (`POST <base>/responses`). For custom
+ * providers whose `api_shape` is `openai-responses`. Shares the request/parse
+ * helpers above with the Copilot responses path.
+ */
+export function responsesProvider(cfg: ProviderConfig): Provider {
+  return {
+    async infer(system, messages, tools, signal): Promise<ParsedTurn> {
+      const url = `${normalizeEndpoint(cfg.endpoint)}/responses`;
+      const body: Record<string, unknown> = {
+        model: cfg.model,
+        instructions: system,
+        input: buildResponsesInput(messages),
+      };
+      if (tools.length) {
+        body.tools = toResponsesTools(tools);
+        body.tool_choice = "auto";
+        body.parallel_tool_calls = true;
+      }
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${cfg.api_key}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+      if (!r.ok) throw new Error(`responses http ${r.status}: ${await r.text()}`);
+      return parseResponses((await r.json()) as unknown);
+    },
+  };
 }

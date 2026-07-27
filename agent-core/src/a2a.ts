@@ -153,6 +153,26 @@ export function buildDelegateBody(tool: A2aTool, task: string): unknown {
 /** A2A task states that cannot transition further (polling should stop). */
 const TERMINAL_STATES = new Set(["completed", "canceled", "failed", "input-required"]);
 
+/**
+ * Normalizes an A2A task state to the short, lowercase form.
+ *
+ * A2A v1.0 serializes TaskState as the protobuf enum name
+ * ("TASK_STATE_COMPLETED"); pre-1.0 peers send the short form ("completed").
+ * Accept both so a hub speaking either version is understood — otherwise an
+ * unrecognized state never matches TERMINAL_STATES and polling spins until the
+ * timeout elapses.
+ */
+export function normalizeTaskState(state: unknown): string {
+  const raw = String(state ?? "").trim();
+  if (!raw) return "";
+  const upper = raw.toUpperCase();
+  if (upper === "TASK_STATE_UNSPECIFIED") return "";
+  if (upper.startsWith("TASK_STATE_")) {
+    return upper.slice("TASK_STATE_".length).toLowerCase().replace(/_/g, "-");
+  }
+  return raw.toLowerCase();
+}
+
 interface A2aPart {
   text?: unknown;
   data?: unknown;
@@ -206,7 +226,7 @@ export function extractResultText(result: A2aTask | undefined): string {
 
 /** True once a Task result has reached a terminal state (or is not a Task). */
 export function isTerminalResult(result: A2aTask | undefined): boolean {
-  const state = result?.status?.state;
+  const state = normalizeTaskState(result?.status?.state);
   // A plain message reply (no task status) is already final.
   if (!state) return true;
   return TERMINAL_STATES.has(state);
@@ -247,11 +267,11 @@ export async function delegate(
     result = await pollTask(tool, headers, taskId, timeoutMs);
   }
 
-  if (result?.status?.state === "failed") {
+  if (normalizeTaskState(result?.status?.state) === "failed") {
     const msg = extractResultText(result) || "task failed";
     throw new Error(`a2a task failed: ${msg}`);
   }
-  if (result?.status?.state === "canceled") {
+  if (normalizeTaskState(result?.status?.state) === "canceled") {
     throw new Error("a2a task was canceled");
   }
   const text = extractResultText(result);

@@ -40,6 +40,26 @@ export interface DelegateA2aTaskArgs {
 
 const TERMINAL_STATES = new Set(["completed", "failed", "canceled", "rejected", "input-required"]);
 
+/**
+ * Normalizes an A2A task state to the short, lowercase form.
+ *
+ * A2A v1.0 serializes TaskState as the protobuf enum name
+ * ("TASK_STATE_COMPLETED"); pre-1.0 peers send the short form ("completed").
+ * Accept both so a hub speaking either version is understood — otherwise an
+ * unrecognized state never matches TERMINAL_STATES and polling spins until it
+ * exhausts its attempts.
+ */
+export function normalizeTaskState(state: unknown): string {
+  const raw = String(state ?? "").trim();
+  if (!raw) return "";
+  const upper = raw.toUpperCase();
+  if (upper === "TASK_STATE_UNSPECIFIED") return "";
+  if (upper.startsWith("TASK_STATE_")) {
+    return upper.slice("TASK_STATE_".length).toLowerCase().replace(/_/g, "-");
+  }
+  return raw.toLowerCase();
+}
+
 function normalizeEndpoint(endpoint: string): string {
   return endpoint.trim().replace(/\/+$/, "");
 }
@@ -155,7 +175,7 @@ async function pollTask(
       method: "tasks/get",
       params: { id: taskId },
     });
-    const state = String(task?.status?.state || "");
+    const state = normalizeTaskState(task?.status?.state);
     if (TERMINAL_STATES.has(state)) return task;
     await sleep(pollIntervalMs);
   }
@@ -188,7 +208,7 @@ export async function delegateA2aTask(args: DelegateA2aTaskArgs): Promise<string
   });
 
   const immediate = extractA2aText(initial);
-  const state = String(initial?.status?.state || "");
+  const state = normalizeTaskState(initial?.status?.state);
   if (immediate && (!state || TERMINAL_STATES.has(state))) return immediate;
 
   const taskId = extractTaskId(initial);
@@ -201,7 +221,7 @@ export async function delegateA2aTask(args: DelegateA2aTaskArgs): Promise<string
     args.maxPollAttempts ?? 600,
     args.pollIntervalMs ?? 500,
   );
-  const completedState = String(completed?.status?.state || "");
+  const completedState = normalizeTaskState(completed?.status?.state);
   const text = extractA2aText(completed);
   if (completedState !== "completed") {
     throw new Error(text || `A2A task ended in ${completedState || "unknown"} state`);

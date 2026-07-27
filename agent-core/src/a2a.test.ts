@@ -4,6 +4,7 @@ import {
   buildDelegateBody,
   extractResultText,
   isTerminalResult,
+  normalizeTaskState,
   makeToolName,
   toolsFromCard,
   type A2aTool,
@@ -170,5 +171,35 @@ describe("makeToolName", () => {
   it("caps names at 64 chars with a stable hash suffix", () => {
     const name = makeToolName("oah-1", "x".repeat(120));
     expect(name.length).toBeLessThanOrEqual(64);
+  });
+});
+
+describe("normalizeTaskState", () => {
+  it("maps A2A v1.0 protobuf enum names to the short form", () => {
+    expect(normalizeTaskState("TASK_STATE_COMPLETED")).toBe("completed");
+    expect(normalizeTaskState("TASK_STATE_WORKING")).toBe("working");
+    expect(normalizeTaskState("TASK_STATE_FAILED")).toBe("failed");
+    expect(normalizeTaskState("TASK_STATE_INPUT_REQUIRED")).toBe("input-required");
+    expect(normalizeTaskState("TASK_STATE_UNSPECIFIED")).toBe("");
+  });
+
+  it("passes through the pre-1.0 short form unchanged", () => {
+    expect(normalizeTaskState("completed")).toBe("completed");
+    expect(normalizeTaskState("input-required")).toBe("input-required");
+  });
+
+  it("treats missing state as empty", () => {
+    expect(normalizeTaskState(undefined)).toBe("");
+    expect(normalizeTaskState(null)).toBe("");
+  });
+});
+
+describe("isTerminalResult with v1.0 states", () => {
+  it("recognizes TASK_STATE_COMPLETED as terminal", () => {
+    expect(isTerminalResult({ status: { state: "TASK_STATE_COMPLETED" } } as never)).toBe(true);
+  });
+
+  it("recognizes TASK_STATE_WORKING as non-terminal", () => {
+    expect(isTerminalResult({ status: { state: "TASK_STATE_WORKING" } } as never)).toBe(false);
   });
 });

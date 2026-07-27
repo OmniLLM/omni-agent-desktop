@@ -331,6 +331,26 @@ export function useAgent(): UseAgentResult {
           activeRunSessionRef.current = null;
         }),
       );
+      // Degraded-capability notices (failed A2A connection, empty tool list).
+      // These are surfaced prominently because they explain why the agent may
+      // describe an action without being able to perform it.
+      un.push(
+        await listen<unknown>("agent://warning", (e) => {
+          if (!isForActiveSession(e.payload)) return;
+          const p = e.payload;
+          const text =
+            typeof p === "string"
+              ? p
+              : p && typeof p === "object" && "text" in (p as Record<string, unknown>)
+                ? String((p as { text: unknown }).text)
+                : "";
+          if (!text.trim()) return;
+          setMessages((prev) => [
+            ...prev,
+            { role: "system", severity: "warning", content: text },
+          ]);
+        }),
+      );
       // The model's reasoning that precedes its tool calls.
       un.push(
         await listen<unknown>("agent://thought", (e) => {

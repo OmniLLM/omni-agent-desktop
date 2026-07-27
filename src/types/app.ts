@@ -20,6 +20,10 @@ export interface ChatMessage {
   isStreaming?: boolean;
   /** For role "thinking": the kind of trace entry, used for iconography. */
   kind?: "thought" | "action" | "result";
+  /** For role "system": renders the notice as a warning rather than a neutral
+   * acknowledgment. Used for degraded-capability notices such as a failed A2A
+   * connection or an empty tool list. */
+  severity?: "info" | "warning";
 }
 
 /** Transitional alias for components still importing the old name. */

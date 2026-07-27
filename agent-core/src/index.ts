@@ -360,15 +360,28 @@ server.register("agent.run", async (params, emit) => {
       `agent-core: agent.run mode=${runMode} active=${settings.active_provider} model=${settings.provider_configs?.[settings.active_provider]?.model} copilotToken=${copilotToken ? "present" : "MISSING"}\n`,
     );
 
-    // Discover A2A tools from every enabled connection.
+    // Discover A2A tools from every enabled connection. A connection that fails
+    // to resolve silently shrinks the tool list, which the model can only report
+    // as "I'll do X" with no tool call — so surface each failure as a visible
+    // warning rather than a dim thought line.
     const a2aTools: A2aTool[] = [];
+    let enabledConnections = 0;
     for (const conn of settings.a2a_connections) {
       if (!conn.enabled) continue;
+      enabledConnections++;
       try {
         const card = await fetchCard(conn.endpoint, conn.token);
-        a2aTools.push(...toolsFromCard(conn, card));
+        const discovered = toolsFromCard(conn, card);
+        if (discovered.length === 0) {
+          semit("agent://warning", {
+            text: `A2A connection "${conn.name}" exposed no tools (its agent card lists no skills). Tools from this connection are unavailable this run.`,
+          });
+        }
+        a2aTools.push(...discovered);
       } catch (e) {
-        semit("agent://thought", { text: `[a2a] ${conn.name}: ${(e as Error).message}` });
+        semit("agent://warning", {
+          text: `A2A connection "${conn.name}" (${conn.endpoint}) failed to load: ${(e as Error).message}. Its tools are unavailable this run.`,
+        });
       }
     }
     const a2aByName = new Map(a2aTools.map((t) => [t.tool_name, t]));
@@ -376,6 +389,23 @@ server.register("agent.run", async (params, emit) => {
     // Merge local + A2A tool definitions.
     const { toolDefinitions } = await import("./tools.js");
     const toolDefs = [...toolDefinitions(), ...a2aTools.map(a2aToolDefinition)];
+
+    // An empty or purely-local tool list is the usual cause of "the agent just
+    // narrated a plan and stopped": the model cannot call a tool it was never
+    // offered. Say so explicitly instead of leaving the user to infer it.
+    if (toolDefs.length === 0) {
+      semit("agent://warning", {
+        text: "No tools are available for this run. The agent can only answer from context; it cannot take any action.",
+      });
+    } else if (enabledConnections === 0) {
+      semit("agent://warning", {
+        text: "No A2A connections are enabled, so only local file and shell tools are available. Requests needing external systems cannot be actioned.",
+      });
+    } else if (a2aTools.length === 0) {
+      semit("agent://warning", {
+        text: `All ${enabledConnections} enabled A2A connection(s) resolved to zero tools, so only local file and shell tools are available.`,
+      });
+    }
 
     // Assemble the seed message list: startup memory becomes the system prompt;
     // history + latest user message become the running conversation.

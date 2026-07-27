@@ -91,8 +91,18 @@ export default function ChatPane({
     <div className="chat-pane">
       {messages.map((m, i) => {
         if (m.role === "system") {
+          const severity = m.severity ?? "info";
           return (
-            <div key={i} className="system-notice" role="status">
+            <div
+              key={i}
+              className={`system-notice system-notice-${severity}`}
+              role={severity === "warning" ? "alert" : "status"}
+            >
+              {severity === "warning" ? (
+                <span className="system-notice-icon" aria-hidden="true">
+                  ⚠
+                </span>
+              ) : null}
               <span className="system-notice-content">{m.content}</span>
             </div>
           );

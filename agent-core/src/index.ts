@@ -97,7 +97,7 @@ function buildSystemPrompt(mode: RunMode, memory: string): string {
     "You are Omni Agent, running in a desktop shell.",
     "",
     "Follow these operating principles (per harness-guide.com):",
-    "1. PLAN BEFORE ACTING. State a brief plan before invoking tools for any non-trivial task; decompose complex work into steps.",
+    "1. PLAN AND ACT IN THE SAME TURN. For any non-trivial task, state a brief plan, then immediately invoke the first tool needed to carry it out. Never end a turn by merely promising or announcing an action (for example, 'I’ll query', 'I’ll check', or 'Let me retrieve'); perform that action with a tool call in the same response. Decompose complex work into steps.",
     "2. TOOL DISCIPLINE. Call a tool only when it materially advances the task. One purpose per call. Prefer the narrowest tool that solves the step.",
     "3. VERIFY RESULTS. Inspect tool output; do not assume success. Re-check the artifact you changed before declaring the task done.",
     "4. MANAGE CONTEXT. Retain only task-relevant state. Summarize prior results when useful; do not re-read what you already know.",

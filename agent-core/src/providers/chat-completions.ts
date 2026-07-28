@@ -4,6 +4,7 @@
  * endpoints, plus serves as the shared building block for Azure and Copilot.
  */
 import { httpFetch as fetch } from "../http.js";
+import { log } from "../log.js";
 import type { ProviderConfig } from "../settings.js";
 import type { Msg, ParsedTurn, Provider, ToolCall } from "./types.js";
 
@@ -48,11 +49,23 @@ export function buildMessages(system: string, messages: Msg[]): unknown[] {
       out.push({
         role: "assistant",
         content: m.content || null,
+        ...(m.reasoning_opaque ? { reasoning_opaque: m.reasoning_opaque } : {}),
         tool_calls: m.tool_calls.map((c) => ({
           id: c.id,
           type: "function",
           function: { name: c.name, arguments: JSON.stringify(c.args ?? {}) },
         })),
+      });
+      continue;
+    }
+    // Assistant turn with reasoning state but no tool calls yet: the model
+    // signalled finish_reason "tool_calls" without emitting them. Echo the
+    // opaque blob back so it can resume and produce the calls.
+    if (m.role === "assistant" && m.reasoning_opaque) {
+      out.push({
+        role: "assistant",
+        content: m.content || null,
+        reasoning_opaque: m.reasoning_opaque,
       });
       continue;
     }
@@ -80,8 +93,17 @@ export function buildMessages(system: string, messages: Msg[]): unknown[] {
 }
 
 export function parseChatCompletions(body: unknown): ParsedTurn {
-  const b = body as { choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown[] } }> };
-  const msg = b.choices?.[0]?.message ?? {};
+  const b = body as {
+    choices?: Array<{
+      message?: { content?: unknown; tool_calls?: unknown[]; reasoning_opaque?: unknown };
+      finish_reason?: unknown;
+    }>;
+  };
+  const choice = b.choices?.[0] ?? {};
+  const msg = choice.message ?? {};
+  if (process.env.OMNI_AGENT_RAW === "1") {
+    log(`RAW chat: ${JSON.stringify(choice).slice(0, 1500)}`);
+  }
   const text = typeof msg.content === "string" ? msg.content : "";
   const toolCalls: ToolCall[] = [];
   for (const c of msg.tool_calls ?? []) {
@@ -99,5 +121,14 @@ export function parseChatCompletions(body: unknown): ParsedTurn {
       args,
     });
   }
-  return { text, tool_calls: toolCalls };
+  return {
+    text,
+    tool_calls: toolCalls,
+    ...(typeof msg.reasoning_opaque === "string"
+      ? { reasoning_opaque: msg.reasoning_opaque }
+      : {}),
+    ...(typeof choice.finish_reason === "string"
+      ? { finish_reason: choice.finish_reason }
+      : {}),
+  };
 }

@@ -26,11 +26,22 @@ export interface Msg {
   /** Present on a `role: "tool"` result turn. Matches the `id` of the
    * originating {@link ToolCall} so the provider can pair call ⇄ result. */
   tool_call_id?: string;
+  /** Opaque reasoning state from a Copilot reasoning model. It must be echoed
+   * back verbatim on the next request or the model loses its chain of thought
+   * and cannot materialize the tool calls it already committed to. */
+  reasoning_opaque?: string;
 }
 
 export interface ParsedTurn {
   text: string;
   tool_calls: ToolCall[];
+  /** See {@link Msg.reasoning_opaque}. Carried so the run loop can echo it on
+   * the follow-up request. */
+  reasoning_opaque?: string;
+  /** Provider-reported stop reason, when supplied. `"tool_calls"` with an empty
+   * `tool_calls` array means the model intends to act but has not yet emitted
+   * the calls -- the loop must continue rather than end the turn. */
+  finish_reason?: string;
 }
 
 /** A provider that can execute one inference turn.

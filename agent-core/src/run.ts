@@ -113,6 +113,11 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
   const runId = randomUUID();
   const wireId = (callId: string) => `${runId}:${callId}`;
 
+  // Guards the reasoning-resume path below: retry it at most once per turn so a
+  // model that keeps returning finish_reason "tool_calls" with no calls cannot
+  // spin the loop.
+  let resumedReasoning = false;
+
   const throwIfAborted = () => {
     if (signal?.aborted) throw new CancelledError();
   };
@@ -139,17 +144,43 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
         ` text_len=${turn.text.length}`,
     );
     if (turn.tool_calls.length === 0) {
+      // A Copilot reasoning model can answer with finish_reason "tool_calls"
+      // while emitting no tool_calls array: the calls are still encoded in the
+      // opaque reasoning state. Ending here is what produced the reported
+      // "I'll query all four providers..." turn that never acted. Echo the
+      // reasoning state back and let the model materialize its calls.
+      if (turn.finish_reason === "tool_calls" && turn.reasoning_opaque && !resumedReasoning) {
+        resumedReasoning = true;
+        log(
+          `run[${runId.slice(0, 8)}] iter=${iter} finish_reason=tool_calls with 0 calls — ` +
+            `resuming with reasoning state (${turn.reasoning_opaque.length}b)`,
+        );
+        if (turn.text.trim().length) emit("agent://thought", { text: turn.text });
+        // The conversation must still end with a user message -- this model
+        // rejects assistant prefill -- so follow the stated intent with a
+        // minimal nudge rather than replaying the assistant turn alone.
+        messages.push({ role: "assistant", content: turn.text });
+        messages.push({
+          role: "user",
+          content:
+            "Proceed. Invoke the tools you just described now, in this turn, rather than restating the plan.",
+        });
+        continue;
+      }
       // The turn ended with prose and no tool call. When the text reads like an
       // intention ("I'll query..."), the model almost certainly wanted a tool
       // it was never offered — the single most confusing failure in this app,
       // so record enough to tell that apart from a genuine plain answer.
       log(
         `run[${runId.slice(0, 8)}] iter=${iter} ENDING with no tool call. ` +
-          `offered=${toolDefs.length} tools: [${toolDefs.map(toolDefName).join(", ")}] ` +
+          `finish_reason=${turn.finish_reason ?? "-"} ` +
+          `offered=${toolDefs.length} tools: [${toolDefs.map(toolDefName).slice(0, 12).join(", ")}` +
+          `${toolDefs.length > 12 ? `, +${toolDefs.length - 12} more` : ""}] ` +
           `text="${turn.text.slice(0, 200).replace(/\s+/g, " ")}"`,
       );
       return { text: turn.text };
     }
+    resumedReasoning = false;
     if (turn.text.trim().length) {
       emit("agent://thought", { text: turn.text });
     }

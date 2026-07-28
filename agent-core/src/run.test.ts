@@ -177,3 +177,80 @@ describe("runOnce tool-call continuation", () => {
     expect(msgs.find((m) => m.role === "tool")!.tool_call_id).toBe(id);
   });
 });
+
+describe("copilot reasoning-model turns", () => {
+  // Regression: a Copilot reasoning model can answer with
+  // finish_reason "tool_calls" while emitting NO tool_calls array -- the calls
+  // are still encoded in reasoning_opaque. Ending the turn there produced the
+  // reported "I'll query all four providers..." reply that never acted.
+  it("resumes instead of ending when finish_reason is tool_calls with no calls", async () => {
+    const seen: number[] = [];
+    let call = 0;
+    const provider = {
+      async infer(_s: string, msgs: Msg[]) {
+        seen.push(msgs.length);
+        call++;
+        if (call === 1) {
+          return {
+            text: "I'll query all four cloud providers in parallel.",
+            tool_calls: [],
+            finish_reason: "tool_calls",
+            reasoning_opaque: "OPAQUE_BLOB",
+          };
+        }
+        if (call === 2) {
+          return {
+            text: "",
+            tool_calls: [{ id: "c1", name: "get_time", args: {} }],
+            finish_reason: "tool_calls",
+          };
+        }
+        return { text: "13,001 VMs.", tool_calls: [], finish_reason: "stop" };
+      },
+    };
+    const out = await runOnce({
+      mode: "autopilot",
+      system: "s",
+      messages: [{ role: "user", content: "how many VMs?" }],
+      toolDefs: [{ name: "get_time" }],
+      maxIterations: 6,
+      isA2A: () => false,
+      isMutating: () => false,
+      provider: provider as unknown as Provider,
+      runTool: async () => "13001",
+      emit: () => {},
+    });
+    expect(call).toBe(3);
+    expect(out.text).toBe("13,001 VMs.");
+  });
+
+  it("does not resume twice, so a stuck model cannot spin the loop", async () => {
+    let call = 0;
+    const provider = {
+      async infer() {
+        call++;
+        return {
+          text: "I'll do it.",
+          tool_calls: [],
+          finish_reason: "tool_calls",
+          reasoning_opaque: "BLOB",
+        };
+      },
+    };
+    const out = await runOnce({
+      mode: "autopilot",
+      system: "s",
+      messages: [{ role: "user", content: "go" }],
+      toolDefs: [{ name: "get_time" }],
+      maxIterations: 10,
+      isA2A: () => false,
+      isMutating: () => false,
+      provider: provider as unknown as Provider,
+      runTool: async () => "x",
+      emit: () => {},
+    });
+    // One resume attempt only: second identical reply ends the turn.
+    expect(call).toBe(2);
+    expect(out.text).toBe("I'll do it.");
+  });
+});

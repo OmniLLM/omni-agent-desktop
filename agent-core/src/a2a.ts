@@ -40,60 +40,13 @@ export function makeToolName(connId: string, skillId: string): string {
   return `${prefix}__${skill.slice(0, headBudget)}_${hash}`;
 }
 
-export interface FetchCardOptions {
-  /** Per-attempt timeout in ms. */
-  timeoutMs?: number;
-  /** Total number of attempts (1 = no retry). */
-  attempts?: number;
-  /** Base delay for exponential backoff between attempts, in ms. */
-  baseDelayMs?: number;
-}
-
-/**
- * Fetches a connection's agent card.
- *
- * The first request after launch is cold — DNS, TLS handshake, proxy auth and
- * a possibly-sleeping remote hub all land on it — and a bare fetch could hang
- * or fail outright. Because a discovery failure silently shrinks the tool list
- * (the model then narrates a plan it has no tool to execute), this is retried
- * with a bounded, backed-off budget. 4xx responses are treated as terminal:
- * a bad URL or a rejected token will not fix itself on a retry.
- */
-export async function fetchCard(
-  endpoint: string,
-  token: string,
-  opts: FetchCardOptions = {},
-): Promise<unknown> {
-  const timeoutMs = opts.timeoutMs ?? 10_000;
-  const attempts = Math.max(1, opts.attempts ?? 3);
-  const baseDelayMs = opts.baseDelayMs ?? 500;
-
+export async function fetchCard(endpoint: string, token: string): Promise<unknown> {
   const url = endpoint.replace(/\/$/, "") + "/.well-known/agent-card.json";
   const headers: Record<string, string> = { accept: "application/json" };
   if (token) headers.authorization = `Bearer ${token}`;
-
-  let lastErr: Error = new Error("agent-card: no attempt made");
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, baseDelayMs * 2 ** (attempt - 1)));
-    }
-    try {
-      const r = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
-      if (!r.ok) {
-        const err = new Error(`agent-card ${r.status}`);
-        // Client errors are deterministic — do not burn the retry budget.
-        if (r.status >= 400 && r.status < 500) throw err;
-        lastErr = err;
-        continue;
-      }
-      return await r.json();
-    } catch (e) {
-      const err = e as Error;
-      if (/^agent-card 4\d\d$/.test(err.message)) throw err;
-      lastErr = err.name === "TimeoutError" ? new Error(`timed out after ${timeoutMs}ms`) : err;
-    }
-  }
-  throw lastErr;
+  const r = await fetch(url, { headers });
+  if (!r.ok) throw new Error(`agent-card ${r.status}`);
+  return r.json();
 }
 
 /**

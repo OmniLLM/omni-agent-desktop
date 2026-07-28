@@ -335,34 +335,6 @@ server.register("agent.approve", (params) => {
 });
 
 // --- agent run -------------------------------------------------------------
-
-/**
- * Last-known-good A2A tool discovery, keyed by connection id.
- *
- * Discovery is a network call on the hot path of every run, and its failure
- * mode is silent: the run continues with a shrunken tool list and the model
- * narrates a plan it has no tool to execute. Serving a recent cached result
- * when a connection is briefly unreachable keeps the tool list stable across
- * the cold first request. Entries older than the TTL are discarded so a
- * genuinely removed skill does not linger indefinitely.
- */
-const DISCOVERY_TTL_MS = 5 * 60 * 1000;
-const discoveryCache = new Map<string, { at: number; tools: A2aTool[] }>();
-
-function cacheDiscovery(connId: string, tools: A2aTool[]): void {
-  discoveryCache.set(connId, { at: Date.now(), tools });
-}
-
-function cachedDiscovery(connId: string): A2aTool[] | null {
-  const hit = discoveryCache.get(connId);
-  if (!hit) return null;
-  if (Date.now() - hit.at > DISCOVERY_TTL_MS) {
-    discoveryCache.delete(connId);
-    return null;
-  }
-  return hit.tools;
-}
-
 server.register("agent.run", async (params, emit) => {
   const { message, mode, history, images, session } = params as {
     message: string;
@@ -397,60 +369,34 @@ server.register("agent.run", async (params, emit) => {
     // to resolve silently shrinks the tool list, which the model can only report
     // as "I'll do X" with no tool call — so surface each failure as a visible
     // warning rather than a dim thought line.
-    //
-    // Discovery runs in parallel (a slow connection must not serialize behind
-    // the others' retry budgets) and falls back to a recent cached result, so a
-    // transient cold-start failure no longer produces the "first prompt does
-    // nothing, second prompt works" asymmetry.
     const a2aTools: A2aTool[] = [];
     let enabledConnections = 0;
-    const enabled = settings.a2a_connections.filter((c) => c.enabled);
-    enabledConnections = enabled.length;
-    const discoveries = await Promise.all(
-      enabled.map(async (conn) => {
-        try {
-          const card = await fetchCard(conn.endpoint, conn.token, {
-            timeoutMs: 10_000,
-            attempts: Math.max(1, settings.ai_max_retry_attempts ?? 3),
-            baseDelayMs: Math.max(0, settings.ai_retry_base_delay_ms ?? 2000) / 4,
+    for (const conn of settings.a2a_connections) {
+      if (!conn.enabled) continue;
+      enabledConnections++;
+      try {
+        const card = await fetchCard(conn.endpoint, conn.token);
+        const discovered = toolsFromCard(conn, card);
+        log(
+          `a2a discovery: conn="${conn.name}" endpoint=${conn.endpoint} ` +
+            `tools=${discovered.length}` +
+            `${discovered.length ? ` [${discovered.map((t) => t.tool_name).slice(0, 12).join(", ")}` : ""}` +
+            `${discovered.length > 12 ? `, +${discovered.length - 12} more]` : discovered.length ? "]" : ""}`,
+        );
+        if (discovered.length === 0) {
+          semit("agent://warning", {
+            text: `A2A connection "${conn.name}" exposed no tools (its agent card lists no skills). Tools from this connection are unavailable this run.`,
           });
-          const discovered = toolsFromCard(conn, card);
-          if (discovered.length > 0) {
-            cacheDiscovery(conn.id, discovered);
-          }
-          return { conn, discovered, error: null as Error | null, stale: false };
-        } catch (e) {
-          const cached = cachedDiscovery(conn.id);
-          return {
-            conn,
-            discovered: cached ?? [],
-            error: e as Error,
-            stale: cached !== null,
-          };
         }
-      }),
-    );
-    for (const d of discoveries) {
-      log(
-        `a2a discovery: conn="${d.conn.name}" endpoint=${d.conn.endpoint} ` +
-          `tools=${d.discovered.length} stale=${d.stale} ` +
-          `error=${d.error ? d.error.message : "none"}` +
-          `${d.discovered.length ? ` [${d.discovered.map((t) => t.tool_name).join(", ")}]` : ""}`,
-      );
-      if (d.error && d.stale) {
+        a2aTools.push(...discovered);
+      } catch (e) {
+        log(
+          `a2a discovery: conn="${conn.name}" endpoint=${conn.endpoint} FAILED: ${(e as Error).message}`,
+        );
         semit("agent://warning", {
-          text: `A2A connection "${d.conn.name}" did not respond (${d.error.message}); using its previously discovered tools for this run.`,
-        });
-      } else if (d.error) {
-        semit("agent://warning", {
-          text: `A2A connection "${d.conn.name}" (${d.conn.endpoint}) failed to load: ${d.error.message}. Its tools are unavailable this run.`,
-        });
-      } else if (d.discovered.length === 0) {
-        semit("agent://warning", {
-          text: `A2A connection "${d.conn.name}" exposed no tools (its agent card lists no skills). Tools from this connection are unavailable this run.`,
+          text: `A2A connection "${conn.name}" (${conn.endpoint}) failed to load: ${(e as Error).message}. Its tools are unavailable this run.`,
         });
       }
-      a2aTools.push(...d.discovered);
     }
     const a2aByName = new Map(a2aTools.map((t) => [t.tool_name, t]));
 
@@ -613,29 +559,6 @@ const driver = new SchedulerDriver(
   (event, data) => server.emit(event, data),
 );
 driver.start();
-
-// Prime A2A discovery at boot so the first user prompt does not pay for the
-// cold DNS/TLS/proxy handshake on its hot path. Failures here are ignored:
-// agent.run re-discovers anyway, and this is purely a warming pass.
-void (async () => {
-  try {
-    const settings = await loadHydratedSettings();
-    await Promise.all(
-      settings.a2a_connections
-        .filter((c) => c.enabled)
-        .map(async (conn) => {
-          try {
-            const tools = toolsFromCard(conn, await fetchCard(conn.endpoint, conn.token));
-            if (tools.length > 0) cacheDiscovery(conn.id, tools);
-          } catch {
-            /* warming only — agent.run will retry and report */
-          }
-        }),
-    );
-  } catch {
-    /* warming only */
-  }
-})();
 
 server.register("scheduler.list", () => listTasks());
 server.register("scheduler.create", (params) => createTask(params as Parameters<typeof createTask>[0]));

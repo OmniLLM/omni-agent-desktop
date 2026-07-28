@@ -1,0 +1,7 @@
+[test]
+# Tests must never touch the user's real config directory. `configDir()` honors
+# OMNI_AGENT_HOME first, so point it at a scratch dir for the whole test run --
+# without this, `npm test` writes logs (and could write settings/sessions) into
+# %APPDATA%/omni-agent-desktop, polluting real user state and making the app's
+# own logs impossible to tell apart from test output.
+preload = ["./test-setup.ts"]

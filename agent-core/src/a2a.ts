@@ -4,6 +4,7 @@
  * <conn>__<skill>, 64-char safe), and delegates via JSON-RPC message/send.
  */
 import { httpFetch as fetch } from "./http.js";
+import { log } from "./log.js";
 import type { A2aConnection } from "./settings.js";
 
 export interface A2aTool {
@@ -297,14 +298,24 @@ export async function delegate(
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (tool.token) headers.authorization = `Bearer ${tool.token}`;
   const body = buildDelegateBody(tool, task);
+  log(
+    `a2a delegate: tool=${tool.tool_name} skill=${tool.skill_id} endpoint=${tool.endpoint} ` +
+      `timeout=${Math.round(timeoutMs / 1000)}s task_len=${task.length}`,
+  );
   const r = await fetch(tool.endpoint, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(a2aHttpErrorMessage(r.status, tool));
+  if (!r.ok) {
+    log(`a2a delegate: tool=${tool.tool_name} HTTP ${r.status}`);
+    throw new Error(a2aHttpErrorMessage(r.status, tool));
+  }
   const reply = (await r.json()) as { result?: A2aTask; error?: { message?: string } };
-  if (reply.error) throw new Error(reply.error.message ?? "a2a error");
+  if (reply.error) {
+    log(`a2a delegate: tool=${tool.tool_name} rpc error: ${reply.error.message}`);
+    throw new Error(reply.error.message ?? "a2a error");
+  }
 
   let result = reply.result;
   const taskId = result?.id;
@@ -342,6 +353,8 @@ async function pollTask(
   timeoutMs: number = DEFAULT_POLL_TIMEOUT_MS,
 ): Promise<A2aTask | undefined> {
   const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
+  let polls = 0;
   let last: A2aTask | undefined;
   while (Date.now() < deadline) {
     await sleep(POLL_INTERVAL_MS);
@@ -355,7 +368,23 @@ async function pollTask(
     const reply = (await r.json()) as { result?: A2aTask; error?: { message?: string } };
     if (reply.error) throw new Error(reply.error.message ?? "a2a error");
     last = reply.result;
-    if (isTerminalResult(last)) return last;
+    polls++;
+    // A long-running skill otherwise looks identical to a hung one from the
+    // outside; log the state transition so the wait is attributable.
+    if (polls === 1 || polls % 10 === 0) {
+      log(
+        `a2a poll: task=${taskId} tool=${tool.tool_name} polls=${polls} ` +
+          `state=${normalizeTaskState(last?.status?.state) ?? "unknown"} ` +
+          `elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`,
+      );
+    }
+    if (isTerminalResult(last)) {
+      log(
+        `a2a poll: task=${taskId} TERMINAL state=${normalizeTaskState(last?.status?.state)} ` +
+          `after ${Math.round((Date.now() - startedAt) / 1000)}s`,
+      );
+      return last;
+    }
   }
   throw new Error(
     `a2a task ${taskId} did not complete within ${Math.round(timeoutMs / 1000)}s`,

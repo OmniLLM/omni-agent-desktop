@@ -8,8 +8,22 @@ import { randomUUID } from "node:crypto";
 import type { ApprovalDecision } from "./approvals.js";
 import { approvals } from "./approvals.js";
 import { classify, executeTool, LOCAL_TOOLS } from "./tools.js";
+import { log } from "./log.js";
 import type { Msg, ParsedTurn, Provider, ToolCall } from "./providers/types.js";
 import type { RunMode } from "./settings.js";
+
+/**
+ * Best-effort tool name for logging. `toolDefs` is `unknown[]` because each
+ * provider carries its own wire shape: OpenAI chat nests under `function.name`,
+ * while Anthropic and the responses API put `name` at the top level.
+ */
+function toolDefName(def: unknown): string {
+  if (!def || typeof def !== "object") return "?";
+  const d = def as { name?: unknown; function?: { name?: unknown } };
+  if (typeof d.name === "string") return d.name;
+  if (d.function && typeof d.function.name === "string") return d.function.name;
+  return "?";
+}
 
 export type Gate = "auto" | "approve" | "block";
 export function gate(mode: RunMode, mutating: boolean): Gate {
@@ -107,15 +121,33 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
     throwIfAborted();
     let turn: ParsedTurn;
     try {
+      log(
+        `run[${runId.slice(0, 8)}] iter=${iter} infer: mode=${mode} tools=${toolDefs.length} msgs=${messages.length}`,
+      );
       turn = await provider.infer(system, messages, toolDefs, signal);
     } catch (e) {
       // A fetch aborted by our signal surfaces as an AbortError; treat it as
       // cancellation (not an ordinary provider failure) so callers can emit a
       // cancelled event rather than an error.
       if (signal?.aborted || isAbortError(e)) throw new CancelledError();
+      log(`run[${runId.slice(0, 8)}] iter=${iter} infer FAILED: ${(e as Error).message}`);
       throw e;
     }
+    log(
+      `run[${runId.slice(0, 8)}] iter=${iter} turn: tool_calls=${turn.tool_calls.length}` +
+        `${turn.tool_calls.length ? ` [${turn.tool_calls.map((c) => c.name).join(", ")}]` : ""}` +
+        ` text_len=${turn.text.length}`,
+    );
     if (turn.tool_calls.length === 0) {
+      // The turn ended with prose and no tool call. When the text reads like an
+      // intention ("I'll query..."), the model almost certainly wanted a tool
+      // it was never offered — the single most confusing failure in this app,
+      // so record enough to tell that apart from a genuine plain answer.
+      log(
+        `run[${runId.slice(0, 8)}] iter=${iter} ENDING with no tool call. ` +
+          `offered=${toolDefs.length} tools: [${toolDefs.map(toolDefName).join(", ")}] ` +
+          `text="${turn.text.slice(0, 200).replace(/\s+/g, " ")}"`,
+      );
       return { text: turn.text };
     }
     if (turn.text.trim().length) {
@@ -147,6 +179,9 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
       emit("agent://tool-call", { call_id: evId, tool: call.name, args: call.args });
 
       const g = gate(mode, mutating);
+      log(
+        `run[${runId.slice(0, 8)}] tool=${call.name} id=${evId} mutating=${mutating} gate=${g}`,
+      );
       let decision: ApprovalDecision;
       if (g === "auto") {
         decision = "approve";
@@ -172,7 +207,12 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
             tool: call.name,
             args: call.args,
           });
+          log(
+            `run[${runId.slice(0, 8)}] tool=${call.name} id=${evId} AWAITING approval ` +
+              `(timeout=${approvalTimeoutMs}ms) — if the UI shows no prompt, the event did not reach it`,
+          );
           decision = await waitApproval(evId, approvalTimeoutMs);
+          log(`run[${runId.slice(0, 8)}] tool=${call.name} id=${evId} decision=${decision}`);
         }
       }
 
@@ -181,10 +221,20 @@ export async function runOnce(input: RunOnceInput): Promise<RunOutcome> {
         result = `[tool ${call.name} denied by user]`;
       } else {
         if (decision === "allow_session") sessionAllow.add(call.name);
+        const startedAt = Date.now();
+        log(`run[${runId.slice(0, 8)}] tool=${call.name} EXECUTING`);
         try {
           result = await runTool(call.name, call.args);
+          log(
+            `run[${runId.slice(0, 8)}] tool=${call.name} OK in ${Date.now() - startedAt}ms ` +
+              `result_len=${result.length}`,
+          );
         } catch (e) {
           result = `error: ${(e as Error).message}`;
+          log(
+            `run[${runId.slice(0, 8)}] tool=${call.name} FAILED in ${Date.now() - startedAt}ms: ` +
+              `${(e as Error).message}`,
+          );
         }
       }
       emit("agent://tool-result", { call_id: evId, tool: call.name, result });

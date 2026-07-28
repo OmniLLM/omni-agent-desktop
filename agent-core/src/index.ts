@@ -4,6 +4,7 @@
  */
 import { RpcServer } from "./rpc.js";
 import { configDir, settingsPath } from "./paths.js";
+import { log, logFilePath } from "./log.js";
 
 // Corporate TLS-inspection proxies (ZScaler, Blue Coat, etc.) re-sign upstream
 // certificates with a private root CA that the runtime's bundled trust store
@@ -326,6 +327,10 @@ server.register("a2a.discover_card", async (params) => {
 server.register("agent.approve", (params) => {
   const { call_id, decision } = params as { call_id: string; decision: ApprovalDecision };
   const ok = approvals.resolve(call_id, decision);
+  // `ok === false` means no pending approval matched this id: the run already
+  // timed out, was cancelled, or the frontend echoed an id from a stale
+  // session. Silently returning would strand the run at "Working...".
+  log(`agent.approve: id=${call_id} decision=${decision} matched=${ok}`);
   return { ok };
 });
 
@@ -426,6 +431,12 @@ server.register("agent.run", async (params, emit) => {
       }),
     );
     for (const d of discoveries) {
+      log(
+        `a2a discovery: conn="${d.conn.name}" endpoint=${d.conn.endpoint} ` +
+          `tools=${d.discovered.length} stale=${d.stale} ` +
+          `error=${d.error ? d.error.message : "none"}` +
+          `${d.discovered.length ? ` [${d.discovered.map((t) => t.tool_name).join(", ")}]` : ""}`,
+      );
       if (d.error && d.stale) {
         semit("agent://warning", {
           text: `A2A connection "${d.conn.name}" did not respond (${d.error.message}); using its previously discovered tools for this run.`,
@@ -651,6 +662,7 @@ server.register("scheduler.cancel", (params) => {
 
 // --- boot ------------------------------------------------------------------
 process.stderr.write(`agent-core: ready (protocol=${PROTOCOL_VERSION})\n`);
+log(`agent-core: ready (protocol=${PROTOCOL_VERSION}) log=${logFilePath()}`);
 server.serve().catch((e) => {
   process.stderr.write(`agent-core: fatal: ${(e as Error).stack ?? e}\n`);
   process.exit(1);

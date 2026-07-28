@@ -46,6 +46,9 @@ function rotateIfNeeded(p: string): void {
  * Logging must never be the reason a run fails, so all IO errors are swallowed.
  */
 export function log(msg: string): void {
+  // Tests assert on behavior, not diagnostics; emitting run traces there buries
+  // real failures in noise. bunfig.toml's preload sets this for the suite.
+  if (process.env.OMNI_AGENT_QUIET_LOG === "1") return;
   const line = `${new Date().toISOString()} ${msg}\n`;
   try {
     process.stderr.write(line);

@@ -10,7 +10,8 @@
     "test:launcher": "node --test scripts/start-release.test.mjs",
     "test:watch": "vitest",
     "start": "node scripts/start-release.mjs",
-    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\""
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "e2e:live": "bun scripts/e2e-live-skills.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

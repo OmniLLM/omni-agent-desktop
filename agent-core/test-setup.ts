@@ -13,3 +13,7 @@ import { join } from "node:path";
 if (!process.env.OMNI_AGENT_HOME) {
   process.env.OMNI_AGENT_HOME = mkdtempSync(join(tmpdir(), "omni-agent-test-"));
 }
+
+// Silence run/A2A diagnostics during tests so assertion failures stand out.
+// Set OMNI_AGENT_QUIET_LOG=0 to see them when debugging a specific test.
+if (!process.env.OMNI_AGENT_QUIET_LOG) process.env.OMNI_AGENT_QUIET_LOG = "1";

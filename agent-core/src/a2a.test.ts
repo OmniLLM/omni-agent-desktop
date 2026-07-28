@@ -3,6 +3,7 @@ import {
   a2aHttpErrorMessage,
   buildDelegateBody,
   extractResultText,
+  fetchCard,
   isTerminalResult,
   normalizeTaskState,
   makeToolName,
@@ -201,5 +202,74 @@ describe("isTerminalResult with v1.0 states", () => {
 
   it("recognizes TASK_STATE_WORKING as non-terminal", () => {
     expect(isTerminalResult({ status: { state: "TASK_STATE_WORKING" } } as never)).toBe(false);
+  });
+});
+
+describe("fetchCard resilience", () => {
+  // Served over a real loopback socket: httpFetch binds its underlying fetch at
+  // module load, so a stubbed global would never be consulted.
+  async function withServer<T>(
+    handler: (req: Request, n: number) => Response,
+    body: (url: string) => Promise<T>,
+  ): Promise<{ result: T; calls: number }> {
+    let calls = 0;
+    const server = Bun.serve({
+      port: 0,
+      fetch: (req) => handler(req, ++calls),
+    });
+    try {
+      const result = await body(`http://localhost:${server.port}`);
+      return { result, calls };
+    } finally {
+      server.stop(true);
+    }
+  }
+
+  it("retries a transient failure and succeeds", async () => {
+    const { result, calls } = await withServer(
+      (_req, n) =>
+        n < 3
+          ? new Response("nope", { status: 503 })
+          : Response.json({ name: "card" }),
+      (url) => fetchCard(url, "t", { attempts: 3, baseDelayMs: 1 }),
+    );
+    expect(calls).toBe(3);
+    expect(result).toEqual({ name: "card" });
+  });
+
+  it("does not retry a 4xx, which will not fix itself", async () => {
+    const { calls } = await withServer(
+      () => new Response("denied", { status: 401 }),
+      async (url) => {
+        await expect(
+          fetchCard(url, "t", { attempts: 3, baseDelayMs: 1 }),
+        ).rejects.toThrow("agent-card 401");
+      },
+    );
+    expect(calls).toBe(1);
+  });
+
+  it("gives up after the attempt budget and reports the last error", async () => {
+    const { calls } = await withServer(
+      () => new Response("boom", { status: 503 }),
+      async (url) => {
+        await expect(
+          fetchCard(url, "t", { attempts: 2, baseDelayMs: 1 }),
+        ).rejects.toThrow("agent-card 503");
+      },
+    );
+    expect(calls).toBe(2);
+  });
+
+  it("times out a hanging connection instead of stalling the run", async () => {
+    const { calls } = await withServer(
+      () => new Promise<Response>(() => {}) as unknown as Response,
+      async (url) => {
+        await expect(
+          fetchCard(url, "t", { attempts: 1, timeoutMs: 150 }),
+        ).rejects.toThrow("timed out");
+      },
+    );
+    expect(calls).toBe(1);
   });
 });

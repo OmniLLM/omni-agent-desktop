@@ -101,6 +101,11 @@ export function parseChatCompletions(body: unknown): ParsedTurn {
   };
   const choice = b.choices?.[0] ?? {};
   const msg = choice.message ?? {};
+  // Opt-in raw-response dump. Kept because the reasoning-turn bug (finish_reason
+  // "tool_calls" with no tool_calls array) was invisible in every other log:
+  // only the untouched provider payload showed what the model actually sent.
+  // Off unless OMNI_AGENT_RAW=1 — it writes prompt/response content to the log
+  // file, so enable it only when debugging, not routinely.
   if (process.env.OMNI_AGENT_RAW === "1") {
     log(`RAW chat: ${JSON.stringify(choice).slice(0, 1500)}`);
   }

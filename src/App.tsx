@@ -63,6 +63,7 @@ export default function App() {
   const showHelpRef = useRef(false);
   const composerRef = useRef<ComposerHandle | null>(null);
   const selectScreenTextRef = useRef<() => Promise<void>>(async () => {});
+  const newTaskRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     showSettingsRef.current = showSettings;
@@ -122,6 +123,24 @@ export default function App() {
       ) {
         e.preventDefault();
         void selectScreenTextRef.current();
+      } else if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        (e.key === "n" || e.key === "N")
+      ) {
+        e.preventDefault();
+        newTaskRef.current();
+      } else if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        (e.key === "c" || e.key === "C") &&
+        // Never steal copy: only clear when there is nothing selected.
+        !window.getSelection()?.toString()
+      ) {
+        e.preventDefault();
+        newTaskRef.current();
       } else if (e.key === "Escape") {
         if (showHelpRef.current) setShowHelp(false);
         else if (showSettingsRef.current) requestCloseSettings();
@@ -135,6 +154,10 @@ export default function App() {
     newSession();
     setView("chat");
   };
+
+  useEffect(() => {
+    newTaskRef.current = handleNewTask;
+  });
 
   const dismissScreenCapture = useCallback((cleanupToken?: string) => {
     if (!cleanupToken) return;

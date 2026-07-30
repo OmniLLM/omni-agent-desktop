@@ -20,9 +20,11 @@ export interface SlashContext {
   notify: (message: string) => void;
   /** Show a transient, auto-dismissing toast (ephemeral confirmation). */
   toast: (message: string) => void;
-  /** Send a prompt to the agent as if the user had typed it. Optional so
-   * embedders without a live agent can still reuse the registry. */
-  sendPrompt?: (text: string) => void;
+  /** Send a prompt to the agent as if the user had typed it. `displayText`
+   * overrides what is shown in the transcript, so commands that wrap the input
+   * in a canned instruction block can keep that boilerplate out of the UI.
+   * Optional so embedders without a live agent can still reuse the registry. */
+  sendPrompt?: (text: string, displayText?: string) => void;
   loading: boolean;
 }
 
@@ -176,7 +178,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
         return;
       }
       if (!ctx.sendPrompt) return;
-      ctx.sendPrompt(`${POLISH_PROMPT}\n\n${text}`);
+      ctx.sendPrompt(`${POLISH_PROMPT}\n\n${text}`, `/polish ${text}`);
     },
   },
   {

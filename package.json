@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "start": "node scripts/start-release.mjs",
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
-    "e2e:live": "bun scripts/e2e-live-skills.ts"
+    "e2e:live": "bun scripts/e2e-live-skills.ts",
+    "e2e:workiq": "bun scripts/e2e-workiq-calendar.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

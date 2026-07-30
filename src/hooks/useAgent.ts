@@ -14,7 +14,12 @@ export interface UseAgentResult {
   pendingApproval: ToolCallEvent | null;
   sessions: SessionInfo[];
   currentSessionId: string | null;
-  send: (text: string, mode?: RunMode, images?: ImageAttachment[]) => Promise<void>;
+  send: (
+    text: string,
+    mode?: RunMode,
+    images?: ImageAttachment[],
+    displayText?: string,
+  ) => Promise<void>;
   decide: (decision: "approve" | "deny" | "allow_session") => Promise<void>;
   newSession: () => void;
   switchSession: (id: string) => Promise<void>;
@@ -421,6 +426,7 @@ export function useAgent(): UseAgentResult {
       text: string,
       mode: RunMode = "ask",
       images: ImageAttachment[] = [],
+      displayText?: string,
     ) => {
       if ((!text.trim() && images.length === 0) || activeRunSessionRef.current) return;
       // History is the prior conversation, before this new question.
@@ -428,9 +434,12 @@ export function useAgent(): UseAgentResult {
       historyRef.current = history;
       const runSession = currentSessionId;
       activeRunSessionRef.current = runSession;
+      // `displayText` lets a caller (e.g. a slash command that wraps the input
+      // in a canned instruction block) show just the user's own words in the
+      // transcript while the model still receives the full prompt.
       const userMessage: ChatMessage = {
         role: "user",
-        content: text,
+        content: displayText ?? text,
         ...(images.length > 0 ? { images } : {}),
       };
       setMessages((prev) => [...prev, userMessage]);

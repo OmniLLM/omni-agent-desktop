@@ -190,11 +190,15 @@ export default function App() {
 
   selectScreenTextRef.current = selectScreenText;
 
-  const submit = (text: string, images: ImageAttachment[] = []) => {
+  const submit = (
+    text: string,
+    images: ImageAttachment[] = [],
+    displayText?: string,
+  ) => {
     // Precedence: an explicit `/agent` choice wins; otherwise fall back to the
     // Approve-for-me toggle (autopilot vs. ask), preserving prior behavior.
     const mode: RunMode = runMode ?? (approveForMe ? "autopilot" : "ask");
-    void send(text, mode, images);
+    void send(text, mode, images, displayText);
   };
 
   // Change provider/model from the composer picker and persist it, mirroring
@@ -241,6 +245,8 @@ export default function App() {
       openSkills: () => setShowSkills(true),
       captureScreenshot,
       selectScreenText,
+      sendPrompt: (text: string, displayText?: string) =>
+        submit(text, [], displayText),
       notify,
       toast: pushToast,
       loading,

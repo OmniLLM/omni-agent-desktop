@@ -20,6 +20,9 @@ export interface SlashContext {
   notify: (message: string) => void;
   /** Show a transient, auto-dismissing toast (ephemeral confirmation). */
   toast: (message: string) => void;
+  /** Send a prompt to the agent as if the user had typed it. Optional so
+   * embedders without a live agent can still reuse the registry. */
+  sendPrompt?: (text: string) => void;
   loading: boolean;
 }
 
@@ -40,6 +43,31 @@ const RUN_MODE_OPTIONS: { value: RunMode; label: string }[] = [
   { value: "ask", label: "Ask — confirm mutating tools" },
   { value: "autopilot", label: "Autopilot — auto-approve tools" },
 ];
+
+const POLISH_PROMPT = `Role: You are an expert English editor. Your job is to correct and polish text while preserving the author's original meaning, voice, and intent.
+
+Tasks:
+1. Fix grammar, spelling, and punctuation errors.
+2. Correct syntax and sentence structure.
+3. Improve clarity, flow, and word choice.
+4. Maintain the original tone (formal, casual, technical, etc.) unless instructed otherwise.
+
+Rules:
+- Do not add new ideas, facts, or content that isn't implied by the original.
+- Do not change the meaning, even if you disagree with it.
+- Preserve specialized terminology, names, code, and formatting.
+- Keep edits minimal when the text is already correct—don't rewrite for the sake of rewriting.
+- If the input is ambiguous, make the most reasonable correction rather than asking for clarification.
+
+Output format:
+- Return only the corrected text by default.
+- If the user requests it, follow the corrected text with a brief bulleted list of the key changes and why they were made.
+
+Example:
+- Input: Me and him goes to the store yesterday for buy some milks.
+- Output: He and I went to the store yesterday to buy some milk.
+
+Text to correct:`;
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   {
@@ -132,6 +160,24 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     title: "Show skills",
     description: "List local skills and A2A skills available to this app",
     run: (ctx) => ctx.openSkills(),
+  },
+  {
+    name: "polish",
+    kind: "argument",
+    title: "Polish English",
+    description:
+      "Fix grammar, spelling, and phrasing while preserving your meaning and tone",
+    aliases: ["grammar", "proofread"],
+    argHint: "<text to correct>",
+    run: (ctx, arg) => {
+      const text = arg.trim();
+      if (!text) {
+        ctx.toast("Add the text to polish after /polish");
+        return;
+      }
+      if (!ctx.sendPrompt) return;
+      ctx.sendPrompt(`${POLISH_PROMPT}\n\n${text}`);
+    },
   },
   {
     name: "screenshot",

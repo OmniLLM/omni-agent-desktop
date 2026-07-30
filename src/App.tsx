@@ -241,6 +241,7 @@ export default function App() {
       openSkills: () => setShowSkills(true),
       captureScreenshot,
       selectScreenText,
+      sendPrompt: (text: string) => submit(text),
       notify,
       toast: pushToast,
       loading,

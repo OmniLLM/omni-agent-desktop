@@ -117,5 +117,17 @@ npm run tauri dev         # run the Tauri dev app with hot reload
 npm test                  # frontend tests (Vitest)
 npm run test:launcher     # launcher script tests
 npm run build             # type-check and build the frontend
+npm run openspec:validate # strictly validate all OpenSpec specs and changes
 ```
+
+## Specification-driven development
+
+This repository uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for its source-of-truth capability specifications and change workflow:
+
+- `openspec/specs/` describes the behavior currently implemented by the product.
+- `openspec/changes/` contains active change proposals, delta specs, designs, and implementation tasks.
+- `openspec/changes/archive/` contains completed changes after their deltas are merged into the main specs.
+- `openspec/config.yaml` supplies project context and artifact rules to OpenSpec-aware coding agents.
+
+Install the current CLI with `npm install -g @fission-ai/openspec@latest`, then run `npm run openspec:validate` before submitting a specification change. In Claude Code, use `/opsx:propose` to plan a change, `/opsx:apply` to implement it, and `/opsx:archive` after implementation and validation are complete.
 

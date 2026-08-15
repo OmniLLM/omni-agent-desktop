@@ -1,0 +1,35 @@
+schema: spec-driven
+
+context: |
+  Product: Omni Agent Desktop, a keyboard-first desktop AI agent and thin client for the Omni ecosystem.
+  Architecture: React 18 + TypeScript + Vite frontend; Tauri 2 Rust desktop shell; Bun/TypeScript agent-core sidecar communicating with the shell over newline-delimited JSON-RPC on stdio.
+  Runtime boundary: The Rust shell owns native desktop integration, window behavior, screenshot/OCR capture, and sidecar lifecycle. The sidecar owns provider access, agent execution, local tools, A2A delegation, settings, secrets, sessions, memory, and scheduling. The React frontend owns user interaction and calls the sidecar through the Tauri bridge.
+  Providers: Custom OpenAI-compatible or Anthropic Messages endpoints, GitHub Copilot, and Azure Foundry. OpenAI Responses is also a supported API shape.
+  Persistence: User state is stored under the application configuration directory. Protected provider credentials must not be returned to the frontend or persisted in plaintext settings.
+  Product constraint: Keep the desktop app focused on provider-driven agent execution and A2A clients. Do not introduce a local OmniLauncher plugin runtime or turn the desktop into an A2A hub.
+  Code style: Match existing TypeScript/React and Rust conventions. Preserve snake_case wire fields and dotted sidecar RPC method names unless a planned compatibility change says otherwise.
+  Validation: Frontend tests use Vitest, sidecar tests use Bun, Rust tests use Cargo, and production builds use the root npm scripts plus Tauri.
+
+rules:
+  proposal:
+    - State affected capabilities and explicitly identify non-goals.
+    - Call out changes to persisted data, credentials, RPC contracts, native permissions, or provider compatibility.
+  specs:
+    - Use SHALL or MUST for normative behavior and give every requirement at least one observable WHEN/THEN scenario.
+    - Specify behavior and acceptance criteria without prescribing implementation details.
+    - Preserve the established capability paths under openspec/specs when modifying existing behavior.
+  design:
+    - Describe which runtime layer owns each change: React frontend, Rust shell, or TypeScript sidecar.
+    - Document compatibility, security, failure handling, and test strategy where relevant.
+  tasks:
+    - Include focused automated tests and an OpenSpec strict-validation task.
+    - Keep tasks small enough to verify independently and list them in dependency order.
+
+operations:
+  apply:
+    guidance:
+      - Run the narrowest relevant tests while implementing and the full affected test suites before completion.
+      - Do not expose provider secrets in frontend state, logs, events, or error payloads.
+  archive:
+    guidance:
+      - Run openspec validate --all --strict --no-interactive before archiving.

@@ -50,6 +50,26 @@ function slashQuery(text: string): string | null {
   return parsed && !parsed.hasArgument ? parsed.token : null;
 }
 
+const PROMPT_HISTORY_LIMIT = 50;
+
+interface PromptHistoryState {
+  entries: string[];
+  index: number | null;
+  draft: string;
+}
+
+function hasCollapsedSelection(textarea: HTMLTextAreaElement): boolean {
+  return textarea.selectionStart === textarea.selectionEnd;
+}
+
+function isOnFirstLogicalLine(textarea: HTMLTextAreaElement): boolean {
+  return textarea.value.lastIndexOf("\n", textarea.selectionStart - 1) === -1;
+}
+
+function isOnLastLogicalLine(textarea: HTMLTextAreaElement): boolean {
+  return textarea.value.indexOf("\n", textarea.selectionEnd) === -1;
+}
+
 const PROVIDER_LABELS: Record<ProviderType, string> = {
   "custom-provider": "Custom",
   "github-copilot": "GitHub Copilot",
@@ -100,6 +120,97 @@ export default function Composer({
   const menuRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const caretFrameRef = useRef<number | null>(null);
+  const promptHistoryRef = useRef<PromptHistoryState>({
+    entries: [],
+    index: null,
+    draft: "",
+  });
+
+  const cancelPendingCaretPlacement = () => {
+    if (caretFrameRef.current === null) return;
+    cancelAnimationFrame(caretFrameRef.current);
+    caretFrameRef.current = null;
+  };
+
+  const resetPromptHistoryNavigation = () => {
+    cancelPendingCaretPlacement();
+    promptHistoryRef.current.index = null;
+    promptHistoryRef.current.draft = "";
+  };
+
+  const showPromptHistoryText = (next: string) => {
+    cancelPendingCaretPlacement();
+    setText(next);
+    caretFrameRef.current = requestAnimationFrame(() => {
+      caretFrameRef.current = null;
+      const textarea = textareaRef.current;
+      if (!textarea || textarea.value !== next) return;
+      textarea.focus();
+      textarea.setSelectionRange(next.length, next.length);
+    });
+  };
+
+  const recordPromptHistory = (prompt: string) => {
+    const history = promptHistoryRef.current;
+    if (prompt && history.entries[0] !== prompt) {
+      history.entries = [prompt, ...history.entries].slice(
+        0,
+        PROMPT_HISTORY_LIMIT,
+      );
+    }
+    resetPromptHistoryNavigation();
+  };
+
+  const navigatePromptHistoryUp = (textarea: HTMLTextAreaElement): boolean => {
+    const history = promptHistoryRef.current;
+    if (
+      history.entries.length === 0 ||
+      !hasCollapsedSelection(textarea) ||
+      !isOnFirstLogicalLine(textarea)
+    ) {
+      return false;
+    }
+
+    if (history.index === null) {
+      history.draft = text;
+      history.index = 0;
+    } else {
+      history.index = Math.min(history.index + 1, history.entries.length - 1);
+    }
+    showPromptHistoryText(history.entries[history.index]);
+    return true;
+  };
+
+  const navigatePromptHistoryDown = (
+    textarea: HTMLTextAreaElement,
+  ): boolean => {
+    const history = promptHistoryRef.current;
+    if (
+      history.index === null ||
+      !hasCollapsedSelection(textarea) ||
+      !isOnLastLogicalLine(textarea)
+    ) {
+      return false;
+    }
+
+    if (history.index === 0) {
+      const draft = history.draft;
+      resetPromptHistoryNavigation();
+      showPromptHistoryText(draft);
+    } else {
+      history.index -= 1;
+      showPromptHistoryText(history.entries[history.index]);
+    }
+    return true;
+  };
+
+  useEffect(
+    () => () => {
+      cancelPendingCaretPlacement();
+    },
+    [],
+  );
 
   // Slash-command autocomplete state. Independent from the model picker
   // (`open`); the two menus are mutually exclusive (opening the slash menu is
@@ -138,6 +249,7 @@ export default function Composer({
     composerRef,
     () => ({
       setText: (next: string) => {
+        resetPromptHistoryNavigation();
         setText(next);
         // Focus + move caret to end so the user can start typing the argument.
         requestAnimationFrame(() => {
@@ -148,6 +260,7 @@ export default function Composer({
         });
       },
       insertText: (next: string) => {
+        resetPromptHistoryNavigation();
         setText((current) => {
           if (!current) return next;
           return `${current.replace(/\s*$/, "")}\n${next}`;
@@ -161,6 +274,7 @@ export default function Composer({
         });
       },
       addImage: (image: ImageAttachment) => {
+        resetPromptHistoryNavigation();
         setImages((current) => [...current, image]);
         requestAnimationFrame(() => textareaRef.current?.focus());
       },
@@ -189,6 +303,7 @@ export default function Composer({
       openModelMenu: () => setOpen(true),
     };
     void cmd.run(ctx, arg);
+    resetPromptHistoryNavigation();
     setText("");
     setSlashActive(0);
   };
@@ -205,8 +320,10 @@ export default function Composer({
         return;
       }
     }
+    if (disabled) return;
     if (images.length > 0) onSend(text, images);
     else onSend(text);
+    recordPromptHistory(trimmed);
     setText("");
     setImages([]);
   };
@@ -217,6 +334,7 @@ export default function Composer({
   const pickSlash = (cmd: SlashCommand) => {
     if (!slash) return;
     if (cmd.kind === "argument") {
+      resetPromptHistoryNavigation();
       setText(`/${cmd.name} `);
       setSlashActive(0);
       textareaRef.current?.focus();
@@ -329,9 +447,12 @@ export default function Composer({
                   type="button"
                   aria-label={`Remove ${image.name}`}
                   title="Remove attachment"
-                  onClick={() =>
-                    setImages((current) => current.filter((item) => item.id !== image.id))
-                  }
+                  onClick={() => {
+                    resetPromptHistoryNavigation();
+                    setImages((current) =>
+                      current.filter((item) => item.id !== image.id),
+                    );
+                  }}
                 >
                   ×
                 </button>
@@ -352,7 +473,10 @@ export default function Composer({
           ref={textareaRef}
           className="composer2__input"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            resetPromptHistoryNavigation();
+            setText(e.target.value);
+          }}
           aria-expanded={slashOpen}
           aria-controls="slash-menu"
           aria-autocomplete="list"
@@ -377,12 +501,33 @@ export default function Composer({
               }
               if (e.key === "Escape") {
                 e.preventDefault();
+                resetPromptHistoryNavigation();
                 setText("");
                 return;
               }
               if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
                 e.preventDefault();
                 pickSlash(slashMatches[slashActive]);
+                return;
+              }
+            }
+            const nativeEvent = e.nativeEvent;
+            const historyArrow = e.key === "ArrowUp" || e.key === "ArrowDown";
+            if (
+              historyArrow &&
+              !e.shiftKey &&
+              !e.altKey &&
+              !e.ctrlKey &&
+              !e.metaKey &&
+              !nativeEvent.isComposing &&
+              nativeEvent.keyCode !== 229
+            ) {
+              const consumed =
+                e.key === "ArrowUp"
+                  ? navigatePromptHistoryUp(e.currentTarget)
+                  : navigatePromptHistoryDown(e.currentTarget);
+              if (consumed) {
+                e.preventDefault();
                 return;
               }
             }

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import type { MouseEvent } from "react";
+import { openExternalUrl } from "../lib/runtime";
 import type { ChatMessage } from "../types/app";
 import { renderMarkdown } from "../utils/markdown";
 
@@ -87,6 +89,18 @@ export default function ChatPane({
   messages: ChatMessage[];
   loading?: boolean;
 }) {
+  const handleMarkdownClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (!(event.target instanceof Element)) return;
+    const link = event.target.closest("a.md-link");
+    const href = link?.getAttribute("href");
+    if (!href || !/^(https?:|mailto:)/i.test(href)) return;
+
+    event.preventDefault();
+    void openExternalUrl(href).catch((error: unknown) => {
+      console.error("Failed to open external link", error);
+    });
+  };
+
   return (
     <div className="chat-pane">
       {messages.map((m, i) => {
@@ -131,6 +145,7 @@ export default function ChatPane({
             {m.role === "assistant" ? (
               <div
                 className="content md-content"
+                onClick={handleMarkdownClick}
                 dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
               />
             ) : (

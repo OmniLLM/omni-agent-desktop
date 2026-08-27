@@ -243,6 +243,13 @@ describe("renderMarkdown", () => {
     expect(html).toContain("<td>A</td>");
   });
 
+  it("renders safe links with an external href", () => {
+    const html = renderMarkdown("[OpenAI](https://openai.com)");
+    expect(html).toContain(
+      '<a class="md-link" href="https://openai.com" target="_blank">',
+    );
+  });
+
   it("escapes HTML in headings", () => {
     const html = renderMarkdown("# <script>alert('xss')</script>");
     expect(html).toContain("&lt;script&gt;");

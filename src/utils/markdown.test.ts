@@ -113,6 +113,127 @@ describe("inlineFormat", () => {
     expect(result).toContain('target="_blank"');
   });
 
+  it("autolinks a bare https URL", () => {
+    const result = inlineFormat("See https://example.com for details");
+    expect(result).toContain('<a class="md-link" href="https://example.com" target="_blank">https://example.com</a>');
+  });
+
+  it("autolinks a bare www URL by adding https scheme to the href", () => {
+    const result = inlineFormat("Visit www.example.com now");
+    expect(result).toContain('href="https://www.example.com"');
+    expect(result).toContain(">www.example.com</a>");
+  });
+
+  it("does not double-wrap a markdown link's URL when autolinking", () => {
+    const result = inlineFormat("[Click](https://example.com)");
+    const matches = result.match(/<a /g) ?? [];
+    expect(matches.length).toBe(1);
+  });
+
+  it("strips trailing punctuation from an autolinked bare URL", () => {
+    const result = inlineFormat("Check https://example.com/path, thanks.");
+    expect(result).toContain('href="https://example.com/path"');
+  });
+
+  it("keeps bare URLs inside inline code inert", () => {
+    expect(renderMarkdown("`https://example.com`"))
+      .toContain('<code class="md-inline-code">https://example.com</code>');
+    expect(renderMarkdown("`https://example.com`")).not.toContain("md-link");
+  });
+
+  it("preserves query parameters in bare URL hrefs", () => {
+    const html = renderMarkdown("https://example.com/?a=1&b=2");
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "https://example.com/?a=1&b=2",
+    );
+  });
+
+  it("strips terminal dots as prose punctuation", () => {
+    expect(renderMarkdown("Open https://example.com. now")).toContain(
+      'href="https://example.com" target="_blank">https://example.com</a>.',
+    );
+    expect(renderMarkdown("Open https://example.com... now")).toContain(
+      'href="https://example.com" target="_blank">https://example.com</a>...',
+    );
+    expect(renderMarkdown("Open https://example.com/path. now")).toContain(
+      'href="https://example.com/path" target="_blank">https://example.com/path</a>.',
+    );
+  });
+
+  it("keeps balanced parentheses in bare URLs", () => {
+    const url = "https://en.wikipedia.org/wiki/Function_(mathematics)";
+    expect(renderMarkdown(url)).toContain(`href="${url}"`);
+  });
+
+  it("keeps balanced parentheses in explicit Markdown link destinations", () => {
+    const url = "https://en.wikipedia.org/wiki/Function_(mathematics)";
+    const html = renderMarkdown(`[Wikipedia](${url})`);
+    expect(html).toContain(`href="${url}"`);
+    expect(html).toContain(">Wikipedia</a>");
+  });
+
+  it("does not autolink www inside another token", () => {
+    expect(renderMarkdown("prefixwww.example.com")).not.toContain("md-link");
+    expect(renderMarkdown("user@www.example.com")).not.toContain("md-link");
+  });
+
+  it("excludes prose punctuation after unmatched URL wrappers", () => {
+    expect(renderMarkdown("Open (https://example.com/path)!")).toContain(
+      'href="https://example.com/path" target="_blank">https://example.com/path</a>)!',
+    );
+  });
+
+  it("preserves meaningful terminal URL punctuation", () => {
+    expect(renderMarkdown("https://example.com/search?q=what?")).toContain(
+      'href="https://example.com/search?q=what?"',
+    );
+    expect(renderMarkdown("https://example.com/bang!")).toContain(
+      'href="https://example.com/bang!"',
+    );
+  });
+
+  it("does not confuse input with internal formatting state", () => {
+    expect(renderMarkdown("[safe](https://safe.test)\0link:0\0").match(/<a /g)).toHaveLength(1);
+    expect(renderMarkdown("text\0code:0\0")).toContain("text\0code:0\0");
+  });
+
+  it("excludes unmatched closing delimiters from bare URLs", () => {
+    expect(renderMarkdown("See {https://example.com}")).toContain(
+      'href="https://example.com" target="_blank">https://example.com</a>}',
+    );
+    expect(renderMarkdown("See https://example.com<next>")).toContain(
+      'href="https://example.com" target="_blank">https://example.com</a>',
+    );
+  });
+
+  it("autolinks bare URLs inside emphasis", () => {
+    expect(renderMarkdown("**https://example.com**")).toContain(
+      '<strong><a class="md-link" href="https://example.com" target="_blank">https://example.com</a></strong>',
+    );
+  });
+
+  it("handles angle-bracket autolinks without including the closing entity", () => {
+    const html = renderMarkdown("<https://example.com>");
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "https://example.com",
+    );
+    expect(container.textContent).toBe("<https://example.com>");
+  });
+
+  it("does not autolink hostless HTTP URLs", () => {
+    expect(renderMarkdown("http://?")).not.toContain("md-link");
+    expect(safeHref("http://?")).toBe("#");
+  });
+
+  it("handles long malformed link syntax without pathological backtracking", () => {
+    const malformed = "[".repeat(100_000);
+    expect(inlineFormat(malformed)).toBe(malformed);
+  });
+
   it("handles multiple inline formats in one string", () => {
     const result = inlineFormat("**bold** and *italic* and `code`");
     expect(result).toContain("<strong>bold</strong>");

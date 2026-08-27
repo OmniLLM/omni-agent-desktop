@@ -24,6 +24,13 @@
     "core:path:default",
     "core:resources:default",
     "global-shortcut:default",
-    "opener:allow-default-urls"
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "http://*" },
+        { "url": "https://*" },
+        { "url": "mailto:*" }
+      ]
+    }
   ]
 }

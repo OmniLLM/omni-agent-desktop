@@ -14,21 +14,154 @@ export function escapeHtml(text: string): string {
 
 export function safeHref(href: string): string {
   const trimmed = href.trim();
-  if (/^(https?:|mailto:)/i.test(trimmed)) return escapeHtml(trimmed);
+  if (/^mailto:/i.test(trimmed)) return escapeHtml(trimmed);
+  if (/^https?:/i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed);
+      if (url.hostname) return escapeHtml(trimmed);
+    } catch {
+      // Invalid URLs are rendered inert below.
+    }
+  }
   return "#";
+}
+
+const BARE_URL_PATTERN =
+  /(^|[\s>(\[{*~'"]|&(?:lt|quot|#39);)((?:https?:\/\/|www\.)(?:(?!&(?:lt|gt|quot|#39);)[^\s<>"`*~])+)/gi;
+
+function decodeEscapedUrl(url: string): string {
+  return url
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function splitTrailingPunctuation(candidate: string): [string, string] {
+  const openCounts = { "(": 0, "[": 0, "{": 0 };
+  const closeCounts = { ")": 0, "]": 0, "}": 0 };
+  for (const character of candidate) {
+    if (character in openCounts) {
+      openCounts[character as keyof typeof openCounts]++;
+    } else if (character in closeCounts) {
+      closeCounts[character as keyof typeof closeCounts]++;
+    }
+  }
+
+  const pairs = { ")": "(", "]": "[", "}": "{" } as const;
+  let end = candidate.length;
+  while (end > 0) {
+    const last = candidate[end - 1];
+    const opener = pairs[last as keyof typeof pairs];
+    const unmatchedCloser =
+      opener !== undefined &&
+      closeCounts[last as keyof typeof closeCounts] > openCounts[opener];
+    const punctuationBeforeUnmatchedCloser =
+      /[!?]/.test(last) &&
+      end > 1 &&
+      pairs[candidate[end - 2] as keyof typeof pairs] !== undefined;
+    if (
+      !/[.,;:]/.test(last) &&
+      !unmatchedCloser &&
+      !punctuationBeforeUnmatchedCloser
+    ) break;
+    if (punctuationBeforeUnmatchedCloser) {
+      end--;
+      continue;
+    }
+    if (unmatchedCloser) closeCounts[last as keyof typeof closeCounts]--;
+    end--;
+  }
+  return [candidate.slice(0, end), candidate.slice(end)];
+}
+
+function formatEmphasis(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/~~(.+?)~~/g, "<del>$1</del>");
+}
+
+function formatBareUrls(text: string): string {
+  let result = "";
+  let cursor = 0;
+  BARE_URL_PATTERN.lastIndex = 0;
+  for (const match of text.matchAll(BARE_URL_PATTERN)) {
+    const prefix = match[1];
+    const candidate = match[2];
+    result += text.slice(cursor, match.index) + prefix;
+    const [bareUrl, suffix] = splitTrailingPunctuation(candidate);
+    const decodedUrl = decodeEscapedUrl(bareUrl);
+    const url = /^www\./i.test(decodedUrl) ? `https://${decodedUrl}` : decodedUrl;
+    const href = safeHref(url);
+    result += href === "#"
+      ? `${bareUrl}${suffix}`
+      : `<a class="md-link" href="${href}" target="_blank">${bareUrl}</a>${suffix}`;
+    cursor = match.index! + match[0].length;
+  }
+  return formatEmphasis(result + text.slice(cursor));
+}
+
+function formatText(text: string): string {
+  let result = "";
+  let plainStart = 0;
+  let labelStart = -1;
+  let labelEnd = -1;
+  let hrefParenDepth = 0;
+
+  for (let index = 0; index < text.length; index++) {
+    if (labelEnd >= 0) {
+      if (text[index] === "(") {
+        hrefParenDepth++;
+        continue;
+      }
+      if (text[index] !== ")") continue;
+      if (hrefParenDepth > 0) {
+        hrefParenDepth--;
+        continue;
+      }
+      if (index === labelEnd + 2) {
+        labelStart = -1;
+        labelEnd = -1;
+        continue;
+      }
+      result += formatBareUrls(text.slice(plainStart, labelStart));
+      const label = text.slice(labelStart + 1, labelEnd);
+      const href = text.slice(labelEnd + 2, index);
+      result += `<a class="md-link" href="${safeHref(decodeEscapedUrl(href))}" target="_blank">${formatEmphasis(label)}</a>`;
+      plainStart = index + 1;
+      labelStart = -1;
+      labelEnd = -1;
+      continue;
+    }
+
+    if (text[index] === "[") {
+      labelStart = index;
+    } else if (
+      labelStart >= 0 &&
+      index > labelStart + 1 &&
+      text[index] === "]" &&
+      text[index + 1] === "("
+    ) {
+      labelEnd = index;
+      hrefParenDepth = 0;
+      index++;
+    }
+  }
+
+  return result + formatBareUrls(text.slice(plainStart));
 }
 
 export function inlineFormat(text: string): string {
   return text
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/~~(.+?)~~/g, "<del>$1</del>")
-    .replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g,
-      (_match, label, href) =>
-        `<a class="md-link" href="${safeHref(href)}" target="_blank">${label}</a>`,
+    .split(/(`[^`]+?`)/g)
+    .map((segment) =>
+      segment.startsWith("`") && segment.endsWith("`")
+        ? `<code class="md-inline-code">${segment.slice(1, -1)}</code>`
+        : formatText(segment),
     )
-    .replace(/`(.+?)`/g, '<code class="md-inline-code">$1</code>');
+    .join("");
 }
 
 export function renderTable(rows: string[]): string {

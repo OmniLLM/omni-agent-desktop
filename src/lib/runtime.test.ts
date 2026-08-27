@@ -1,9 +1,11 @@
 import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
+import { openUrl as tauriOpenUrl } from "@tauri-apps/plugin-opener";
 import mainRsSource from "../../src-tauri/src/main.rs?raw";
 import sidecarRsSource from "../../src-tauri/src/sidecar.rs?raw";
-import { isWindowLocalCommand, invoke, getBackendMode, listen, emit, ensureBackendToken, __resetMockScheduler } from "./runtime";
+import defaultCapabilitySource from "../../src-tauri/capabilities/default.json?raw";
+import { isWindowLocalCommand, invoke, getBackendMode, listen, emit, ensureBackendToken, openExternalUrl, __resetMockScheduler } from "./runtime";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -232,6 +234,56 @@ describe("backend mode detection", () => {
   it('returns "mock" when window exists but no backend URL and no Tauri', () => {
     (globalThis as any).window = {};
     expect(getBackendMode()).toBe("mock");
+  });
+});
+
+describe("external link opening", () => {
+  afterEach(cleanupGlobals);
+
+  it("delegates to the Tauri opener in the desktop shell", async () => {
+    (globalThis as any).window = { __TAURI_INTERNALS__: {} };
+
+    await openExternalUrl("https://example.com/docs");
+
+    expect(tauriOpenUrl).toHaveBeenCalledWith("https://example.com/docs");
+  });
+
+  it("opens a new tab when running in a browser", async () => {
+    const open = vi.fn(() => ({}));
+    (globalThis as any).window = { open };
+
+    await openExternalUrl("https://example.com/docs");
+
+    expect(open).toHaveBeenCalledWith(
+      "https://example.com/docs",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    expect(tauriOpenUrl).not.toHaveBeenCalled();
+  });
+
+  it("grants open_url only for application-supported schemes", () => {
+    const capability = JSON.parse(defaultCapabilitySource) as {
+      permissions: Array<
+        string | { identifier: string; allow?: Array<{ url: string }> }
+      >;
+    };
+    const openerPermission = capability.permissions.find(
+      (permission) =>
+        typeof permission !== "string" &&
+        permission.identifier === "opener:allow-open-url",
+    );
+
+    expect(openerPermission).toEqual({
+      identifier: "opener:allow-open-url",
+      allow: [
+        { url: "http://*" },
+        { url: "https://*" },
+        { url: "mailto:*" },
+      ],
+    });
+    expect(capability.permissions).not.toContain("opener:allow-default-urls");
+    expect(capability.permissions).not.toContain("opener:default");
   });
 });
 

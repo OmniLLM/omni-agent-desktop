@@ -267,9 +267,17 @@ export function getBackendUrl(): string {
   return backendUrl();
 }
 
-/** Open an external URL with the operating system's default application. */
+/** Open an external URL in the OS handler or a new browser tab. */
 export async function openExternalUrl(url: string): Promise<void> {
-  await tauriOpenUrl(url);
+  if (isTauriRuntime()) {
+    await tauriOpenUrl(url);
+    return;
+  }
+
+  if (typeof window === "undefined") {
+    throw new Error("External links require a browser or Tauri runtime");
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 type EventHandler<T> = (event: { payload: T }) => void;

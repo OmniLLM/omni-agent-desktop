@@ -32,13 +32,13 @@ export default function App() {
   );
   const [collapsed, setCollapsed] = useState(false);
   const [view, setView] = useState<WorkspaceView>("chat");
-  const [approveForMe, setApproveForMe] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
-  // Agent run mode chosen via `/agent`. Seeded from persisted settings; falls
-  // back to the Approve-for-me toggle when unset so behavior is unchanged for
-  // users who never invoke the command.
-  const [runMode, setRunMode] = useState<RunMode | null>(null);
+  // Single source of truth for tool approval policy. Both `/approve` and the
+  // composer's "Approve for me" toggle write here, so the two surfaces can
+  // never disagree. Seeded from persisted settings on load.
+  const [runMode, setRunMode] = useState<RunMode>("ask");
+  const approveForMe = runMode === "autopilot";
   const { resolvedTheme, setTheme } = useTheme();
   const {
     messages,
@@ -87,6 +87,7 @@ export default function App() {
       .then((s) => {
         const preset = normalizeWindowSize(s?.window_size);
         setSettings({ ...s, window_size: preset });
+        if (s?.run_mode) setRunMode(s.run_mode);
         if (s?.theme) setTheme(parseThemeMode(s.theme));
         void applyWindowSize(preset, {
           customWidth: s?.window_size_custom_width,
@@ -218,11 +219,13 @@ export default function App() {
     images: ImageAttachment[] = [],
     displayText?: string,
   ) => {
-    // Precedence: an explicit `/agent` choice wins; otherwise fall back to the
-    // Approve-for-me toggle (autopilot vs. ask), preserving prior behavior.
-    const mode: RunMode = runMode ?? (approveForMe ? "autopilot" : "ask");
-    void send(text, mode, images, displayText);
+    void send(text, runMode, images, displayText);
   };
+
+  // The composer toggle is a two-state view of `runMode`: on means autopilot,
+  // off returns to the confirm-every-mutation default.
+  const handleToggleApprove = (value: boolean) =>
+    setRunMode(value ? "autopilot" : "ask");
 
   // Change provider/model from the composer picker and persist it, mirroring
   // the values Preferences reads/writes (active_provider + provider_configs).
@@ -285,6 +288,7 @@ export default function App() {
       notify,
       pushToast,
       loading,
+      runMode,
     ],
   );
 
@@ -405,7 +409,7 @@ export default function App() {
                   settings={settings}
                   onModelChange={handleModelChange}
                   approveForMe={approveForMe}
-                  onToggleApprove={setApproveForMe}
+                  onToggleApprove={handleToggleApprove}
                   slash={slashContext}
                   loading={loading}
                   onCancel={stop}

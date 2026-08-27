@@ -554,7 +554,7 @@ export default function Composer({
             }`}
             aria-pressed={approveForMe}
             onClick={() => onToggleApprove?.(!approveForMe)}
-            title="When on, tool actions run without asking for approval"
+            title="Auto-approve tool actions — same as /approve autopilot"
           >
             <span aria-hidden="true">◍</span> Approve for me
           </button>

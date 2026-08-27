@@ -132,10 +132,11 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     run: (ctx) => ctx.openModelMenu?.(),
   },
   {
-    name: "agent",
+    name: "approve",
     kind: "argument",
-    title: "Set run mode",
-    description: "Choose how the agent runs tools",
+    title: "Set approval mode",
+    description: "Choose whether the agent asks before running tools",
+    aliases: ["agent", "mode"],
     argHint: "<plan|ask|autopilot>",
     argOptions: () => RUN_MODE_OPTIONS,
     run: (ctx, arg) => {
@@ -145,7 +146,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
         ctx.setRunMode
       ) {
         ctx.setRunMode(mode);
-        ctx.notify(`Run mode set to ${mode}.`);
+        ctx.notify(`Approval mode set to ${mode}.`);
       }
     },
   },

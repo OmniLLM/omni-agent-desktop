@@ -58,17 +58,25 @@ describe("matchCommand", () => {
 });
 
 describe("command dispatch", () => {
-  it("dispatches rename and valid agent modes", () => {
+  it("dispatches rename and valid approval modes", () => {
     const context = makeContext();
     const rename = matchCommand("/rename Fresh")!;
     rename.cmd.run(context, rename.arg);
     expect(context.renameSession).toHaveBeenCalledWith("Fresh");
 
-    const agent = SLASH_COMMANDS.find((command) => command.name === "agent")!;
-    agent.run(context, "autopilot");
-    agent.run(context, "bogus");
+    const approve = SLASH_COMMANDS.find(
+      (command) => command.name === "approve",
+    )!;
+    approve.run(context, "autopilot");
+    approve.run(context, "bogus");
     expect(context.setRunMode).toHaveBeenCalledTimes(1);
     expect(context.setRunMode).toHaveBeenCalledWith("autopilot");
+  });
+
+  it("still resolves the legacy /agent alias to /approve", () => {
+    const match = matchCommand("/agent plan");
+    expect(match?.cmd.name).toBe("approve");
+    expect(match?.arg).toBe("plan");
   });
 
   it("only enables stop while loading", () => {

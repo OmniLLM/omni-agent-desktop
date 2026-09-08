@@ -1,6 +1,7 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { invoke } from "../lib/runtime";
 import SlashMenu from "./SlashMenu";
+import Icon from "./Icon";
 import {
   filterCommands,
   matchCommand,
@@ -545,7 +546,7 @@ export default function Composer({
             className="composer2__add"
             aria-label="Add attachment"
           >
-            ＋
+            <Icon name="plus" size={18} />
           </button>
           <button
             type="button"
@@ -556,7 +557,7 @@ export default function Composer({
             onClick={() => onToggleApprove?.(!approveForMe)}
             title="Auto-approve tool actions — same as /approve autopilot"
           >
-            <span aria-hidden="true">◍</span> Approve for me
+            <span className="composer2__toggle-indicator" aria-hidden="true" /> Approve for me
           </button>
           <span className="composer2__spacer" />
 
@@ -659,7 +660,7 @@ export default function Composer({
               onClick={submit}
               disabled={disabled}
             >
-              ↑
+              <Icon name="up" size={18} />
             </button>
           )}
         </div>

@@ -143,7 +143,7 @@ export function buildBackgroundCss(
 
   if (!image) {
     return theme === "dark"
-      ? "linear-gradient(160deg, #1a1a1a 0%, #202020 52%, #1a1a1a 100%)"
+      ? "linear-gradient(160deg, var(--bg) 0%, var(--bg-elevated) 52%, var(--bg) 100%)"
       : "var(--bg)";
   }
 

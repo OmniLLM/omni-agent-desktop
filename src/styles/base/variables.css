@@ -1,65 +1,67 @@
-/* === Theme Variables === */
-/* Dark theme: Microsoft M365 Copilot-inspired neutral dark.
-   Near-black neutral backgrounds (no blue cast), understated blue accent
-   used sparingly, low-contrast borders, soft rounded surfaces. */
+/* Apple-inspired semantic colors and translucent materials. */
 :root,
 [data-theme="dark"] {
-  --bg: #1a1a1a;             /* M365 neutral near-black canvas */
-  --bg-elevated: #202020;    /* Elevated container / dialog background */
-  --surface: #2a2a2a;        /* Input, card, pill backgrounds */
-  --surface-2: #333333;      /* Darker borders/highlights */
-  --surface-hover: #313131;  /* Subtle neutral hover */
-  --text: #f2f2f2;           /* Crisp off-white text */
-  --text-secondary: #adadad; /* Neutral gray medium contrast */
-  --sub: #8a8a8a;            /* Lower contrast descriptive text */
-  --accent: #479ef5;         /* M365 communication blue, used sparingly */
-  --accent-dim: rgba(71, 158, 245, 0.16);
-  --accent-hover: rgba(71, 158, 245, 0.09);
-  --border: rgba(255, 255, 255, 0.08);
-  --shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.75), 0 1px 3px rgba(0, 0, 0, 0.5);
-  --user-bubble: #2f2f2f;    /* Neutral user bubble (M365 uses subtle surface, not colored) */
-  --user-bubble-text: #f2f2f2;
-  --ai-bubble: #202020;
-  --ai-text: #f2f2f2;
-  --success: #6ccb5f;
-  --error: #f0616d;
-  --warning: #f5b544;
-  --danger: #f0616d;
-  --radius: 12px;
-  /* Shared conversation-column geometry. Every centered element in the chat
-     view (messages, composer, approval prompt, working indicator) uses these
-     so their content edges align to a single column. Widened from 820px to
-     give tables and wide content more room while keeping prose and the
-     composer edge-aligned. */
+  color-scheme: dark;
+  --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --bg: #1c1c1e;
+  --bg-elevated: #242426;
+  --surface: #2c2c2e;
+  --surface-2: #3a3a3c;
+  --surface-hover: #363638;
+  --text: #f5f5f7;
+  --text-secondary: #b8b8bf;
+  --sub: #a0a0a8;
+  --accent: #5eabff;
+  --accent-fill: #0071e3;
+  --on-accent: #ffffff;
+  --accent-dim: rgba(94, 171, 255, 0.16);
+  --accent-hover: rgba(94, 171, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.1);
+  --material: rgba(36, 36, 38, 0.88);
+  --material-sidebar: rgba(30, 30, 32, 0.9);
+  --material-edge: rgba(255, 255, 255, 0.12);
+  --shadow: 0 16px 48px -16px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.16);
+  --shadow-control: 0 2px 5px rgba(0, 0, 0, 0.12);
+  --user-bubble: #303034;
+  --user-bubble-text: #f5f5f7;
+  --ai-bubble: #242426;
+  --ai-text: #f5f5f7;
+  --success: #63d27c;
+  --error: #ff6961;
+  --warning: #ffd060;
+  --danger: #ff6961;
+  --radius: 14px;
+  /* Shared edges for messages, composer, approvals and status. */
   --chat-column: 1040px;
   --chat-gutter: 24px;
 }
 
-/* Light theme: Microsoft M365 Copilot-inspired neutral light.
-   Soft neutral gray canvas, white elevated surfaces, understated blue accent
-   used sparingly, low-contrast borders, soft rounded surfaces. */
 [data-theme="light"] {
-  --bg: #f5f5f5;             /* M365 neutral light canvas */
-  --bg-elevated: #ffffff;    /* White elevated container / dialog */
-  --surface: #f0f0f0;        /* Input, card, pill backgrounds */
-  --surface-2: #e6e6e6;      /* Secondary surface border */
-  --surface-hover: #ebebeb;  /* Subtle neutral hover */
-  --text: #242424;           /* M365 near-black text */
-  --text-secondary: #616161; /* Neutral gray medium contrast */
-  --sub: #808080;            /* Lower contrast descriptive text */
-  --accent: #0f6cbd;         /* M365 communication blue, used sparingly */
-  --accent-dim: rgba(15, 108, 189, 0.1);
-  --accent-hover: rgba(15, 108, 189, 0.06);
-  --border: rgba(0, 0, 0, 0.08);
-  --shadow: 0 10px 25px -8px rgba(0, 0, 0, 0.12), 0 2px 6px -2px rgba(0, 0, 0, 0.08);
-  --user-bubble: #ebebeb;    /* Neutral user bubble (M365 uses subtle surface, not colored) */
-  --user-bubble-text: #242424;
+  color-scheme: light;
+  --bg: #f5f5f7;
+  --bg-elevated: #ffffff;
+  --surface: #f0f0f3;
+  --surface-2: #dedee3;
+  --surface-hover: #e8e8ed;
+  --text: #1d1d1f;
+  --text-secondary: #616166;
+  --sub: #6e6e73;
+  --accent: #0066cc;
+  --accent-fill: #0071e3;
+  --accent-dim: rgba(0, 102, 204, 0.09);
+  --accent-hover: rgba(0, 102, 204, 0.05);
+  --border: rgba(0, 0, 0, 0.09);
+  --material: rgba(255, 255, 255, 0.88);
+  --material-sidebar: rgba(235, 235, 240, 0.9);
+  --material-edge: rgba(255, 255, 255, 0.8);
+  --shadow: 0 16px 48px -16px rgba(29, 29, 31, 0.16), 0 2px 6px rgba(29, 29, 31, 0.04);
+  --shadow-control: 0 2px 5px rgba(29, 29, 31, 0.04);
+  --user-bubble: #e9e9ee;
+  --user-bubble-text: #1d1d1f;
   --ai-bubble: #ffffff;
-  --ai-text: #242424;
-  --success: #0e700e;
-  --error: #c50f1f;
-  --warning: #bc4b09;
-  --danger: #c50f1f;
-  --radius: 12px;
+  --ai-text: #1d1d1f;
+  --success: #24813b;
+  --error: #c9342c;
+  --warning: #946200;
+  --danger: #c9342c;
 }
-

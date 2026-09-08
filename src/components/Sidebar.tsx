@@ -1,4 +1,5 @@
 import type { SessionInfo } from "../types/app";
+import Icon, { type IconName } from "./Icon";
 
 export type WorkspaceView = "chat" | "scheduled";
 
@@ -15,9 +16,9 @@ interface Props {
   onOpenSettings: () => void;
 }
 
-const NAV_ITEMS: { view: WorkspaceView; icon: string; label: string }[] = [
-  { view: "chat", icon: "✎", label: "New task" },
-  { view: "scheduled", icon: "◔", label: "Scheduled" },
+const NAV_ITEMS: { view: WorkspaceView; icon: IconName; label: string }[] = [
+  { view: "chat", icon: "compose", label: "New task" },
+  { view: "scheduled", icon: "clock", label: "Scheduled" },
 ];
 
 export default function Sidebar({
@@ -41,10 +42,11 @@ export default function Sidebar({
           title="Hide sidebar (Ctrl+H)"
           onClick={onToggleCollapse}
         >
-          ⇤
+          <Icon name="sidebar" size={18} />
         </button>
         <span className="sidebar__brand">
-          Agent <span className="sidebar__brand-accent">Desktop</span>
+          <span className="sidebar__brand-name">Omni Agent</span>
+          <span className="sidebar__brand-accent">Your workspace</span>
         </span>
       </div>
 
@@ -53,6 +55,7 @@ export default function Sidebar({
           <button
             key={item.view}
             type="button"
+            aria-current={view === item.view ? "page" : undefined}
             className={`sidebar__item${
               view === item.view ? " is-active" : ""
             }`}
@@ -62,7 +65,7 @@ export default function Sidebar({
             }}
           >
             <span className="sidebar__item-icon" aria-hidden="true">
-              {item.icon}
+              <Icon name={item.icon} size={18} />
             </span>
             <span>{item.label}</span>
           </button>
@@ -84,20 +87,22 @@ export default function Sidebar({
                   session.id === currentSessionId ? " is-active" : ""
                 }`}
               >
-                <span
+                <button
+                  type="button"
                   className="sidebar__task-title"
                   onClick={() => onSelectTask(session.id)}
+                  aria-current={session.id === currentSessionId ? "true" : undefined}
                   title={label}
                 >
                   {label}
-                </span>
+                </button>
                 <button
                   type="button"
                   className="sidebar__task-delete"
                   aria-label={`Delete ${label}`}
                   onClick={() => onDeleteTask(session.id)}
                 >
-                  ✕
+                  <Icon name="close" size={14} />
                 </button>
               </div>
               );
@@ -114,7 +119,7 @@ export default function Sidebar({
           onClick={onOpenSettings}
         >
           <span className="sidebar__item-icon" aria-hidden="true">
-            ⚙
+            <Icon name="settings" size={18} />
           </span>
           <span>Settings</span>
         </button>

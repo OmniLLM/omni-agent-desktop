@@ -13,6 +13,7 @@ import Sidebar, { type WorkspaceView } from "./components/Sidebar";
 import Titlebar from "./components/Titlebar";
 import GlobalKeyframes from "./components/GlobalKeyframes";
 import AppShell from "./components/AppShell";
+import Icon from "./components/Icon";
 import { useAgent } from "./hooks/useAgent";
 import { useToasts } from "./hooks/useToasts";
 import { useTheme } from "./hooks/useTheme";
@@ -388,7 +389,7 @@ export default function App() {
                 title="Show sidebar (Ctrl+H)"
                 onClick={() => setCollapsed(false)}
               >
-                ⇥
+                <Icon name="sidebar" size={18} />
               </button>
             ) : null}
             {view === "chat" ? (

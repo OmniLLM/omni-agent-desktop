@@ -1,0 +1,416 @@
+/* Apple design: quiet hierarchy, substantial materials, immediate feedback.
+   Reference: https://github.com/emilkowalski/skills/tree/main/skills/apple-design
+   Kept after component styles so the same treatment covers all app surfaces. */
+.workspace {
+  --sidebar-w: 244px;
+}
+
+.titlebar,
+.omni-titlebar,
+.composer2__menu,
+.settings-popover {
+  background: var(--material);
+  backdrop-filter: blur(24px) saturate(1.3);
+  -webkit-backdrop-filter: blur(24px) saturate(1.3);
+}
+
+.titlebar {
+  border-bottom-color: transparent;
+  box-shadow: 0 1px 0 var(--border);
+}
+
+.titlebar__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.sidebar {
+  background: var(--material-sidebar);
+  backdrop-filter: blur(28px) saturate(1.2);
+  -webkit-backdrop-filter: blur(28px) saturate(1.2);
+  box-shadow: inset -1px 0 var(--material-edge);
+}
+
+.sidebar__header {
+  padding: 26px 18px 22px;
+  gap: 10px;
+}
+
+.sidebar__brand {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.sidebar__brand-accent {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+.sidebar__icon-btn,
+.sidebar-show {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 9px;
+}
+
+.sidebar__item {
+  min-height: 40px;
+  border-radius: 9px;
+  gap: 10px;
+}
+
+.sidebar__item.is-active,
+.settings-tab--active,
+.settings-tab--active:hover {
+  background: var(--accent-fill);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-control);
+}
+
+.sidebar__section {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.015em;
+  text-transform: none;
+  padding-top: 28px;
+}
+
+.sidebar__empty {
+  opacity: 1;
+  font-size: 12px;
+}
+
+.sidebar__task {
+  padding: 0 6px 0 12px;
+  gap: 4px;
+}
+
+.sidebar__task-title {
+  padding: 9px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar__task-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
+.sidebar__task:focus-within .sidebar__task-delete {
+  opacity: 1;
+}
+
+.sidebar__footer {
+  margin: 0 12px;
+  padding: 12px 0;
+  background: transparent;
+}
+
+.welcome {
+  padding: 48px 32px;
+}
+
+.welcome__logo {
+  width: 68px;
+  height: 68px;
+  margin-bottom: 24px;
+  border-radius: 21px;
+  border: 1px solid var(--material-edge);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--material-edge);
+}
+
+.welcome__title {
+  margin-bottom: 10px;
+  font-size: clamp(1.8rem, 3.2vw, 2.5rem);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.welcome__subtitle {
+  margin: 0 0 36px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.welcome__cards {
+  max-width: 720px;
+  gap: 12px;
+}
+
+.welcome__card {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  min-height: 102px;
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-control);
+  transition: background-color 160ms ease, border-color 160ms ease,
+    box-shadow 160ms ease, transform 160ms ease;
+}
+
+.welcome__card:hover {
+  transform: none;
+  background: var(--bg-elevated);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.welcome__card-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+.welcome__card-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.welcome__card-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.welcome__card-description {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.welcome__card-arrow {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--sub);
+}
+
+.composer2__box {
+  padding: 16px 18px 12px;
+  border-radius: 22px;
+  background: var(--bg-elevated);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--shadow), inset 0 1px 0 var(--material-edge);
+}
+
+.composer2__input {
+  font-size: 15px;
+  padding: 4px 2px 16px;
+}
+
+.composer2__input::placeholder,
+.composer2__disclaimer {
+  opacity: 1;
+}
+
+.composer2__controls {
+  border-top-color: transparent;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.composer2__add,
+.composer2__send {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+}
+
+.composer2__toggle,
+.composer2__model {
+  min-height: 32px;
+  border-radius: 9px;
+}
+
+.composer2__toggle-indicator {
+  display: inline-block;
+  width: 24px;
+  height: 14px;
+  padding: 2px;
+  background: var(--surface-2);
+  border-radius: 999px;
+}
+
+.composer2__toggle-indicator::after {
+  content: "";
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform 160ms ease, background-color 160ms ease;
+}
+
+.is-active .composer2__toggle-indicator {
+  background: var(--accent-fill);
+}
+
+.is-active .composer2__toggle-indicator::after {
+  transform: translateX(10px);
+  background: var(--on-accent);
+}
+
+.composer2__send:not(.composer2__cancel),
+.omni-btn--primary,
+.panel-view__btn:not(.panel-view__btn--ghost),
+.settings__save-btn {
+  background: var(--accent-fill);
+  color: var(--on-accent);
+}
+
+.composer2__menu {
+  box-shadow: var(--shadow);
+  border-color: var(--material-edge);
+}
+
+.omni-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-fill) 90%, black);
+  color: var(--on-accent);
+}
+
+.settings-overlay {
+  /* Modal scrim focuses the sheet; no translucent foreground on glass. */
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.settings-sheet {
+  border-radius: 20px;
+  border-color: var(--material-edge);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.28), var(--shadow);
+}
+
+.settings-section-header {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
+.settings-tab {
+  border-left: 0;
+}
+
+.panel-view__title {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.panel-view__empty {
+  border-style: solid;
+  background: var(--bg-elevated);
+  padding: 32px;
+}
+
+/* Press feedback starts at pointer-down and never blocks the action. */
+:is(.welcome__card, .sidebar__item, .sidebar__icon-btn, .sidebar-show,
+  .composer2__send, .composer2__add, .omni-btn, .panel-view__btn):active:not(:disabled) {
+  transform: scale(0.98);
+  transition: transform 80ms ease-out;
+}
+
+@media (max-width: 960px) {
+  .workspace { --sidebar-w: 210px; }
+  .welcome { padding: 32px 24px; }
+  .welcome__cards { max-width: 480px; grid-template-columns: 1fr; }
+  .welcome__card { min-height: 84px; padding: 16px; }
+}
+
+@media (max-width: 640px) {
+  .workspace { --sidebar-w: 170px; --chat-gutter: 12px; }
+  .sidebar__header { padding: 20px 10px; gap: 6px; }
+  .sidebar__nav, .sidebar__tasks { padding-inline: 8px; }
+  .sidebar__brand { font-size: 13px; }
+  .welcome { padding: 28px 16px; }
+  .welcome__subtitle { margin-bottom: 24px; font-size: 13px; }
+  .welcome__card { gap: 10px; padding: 14px; }
+  .welcome__card-arrow { display: none; }
+  .composer2__box { padding: 12px; border-radius: 18px; }
+  .composer2__spacer { display: none; }
+  .composer2__picker { margin-left: auto; }
+  .composer2__model { max-width: 160px; }
+  .composer2__menu { min-width: 210px; max-width: calc(100vw - 36px); }
+  .panel-view { padding: 24px 16px; }
+  .panel-view__form { flex-wrap: wrap; }
+}
+
+@media (min-width: 760px) and (max-height: 700px) {
+  .welcome { padding: 24px; }
+  .welcome__logo { width: 48px; height: 48px; border-radius: 15px; margin-bottom: 16px; }
+  .welcome__subtitle { margin-bottom: 24px; }
+  .welcome__cards { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 720px; }
+  .welcome__card { min-height: 88px; padding: 14px; gap: 10px; }
+  .welcome__card-arrow { display: none; }
+}
+
+@media (hover: none) {
+  .sidebar__task-delete { opacity: 1; }
+  :is(.sidebar__item, .sidebar__icon-btn, .sidebar-show, .composer2__add,
+    .composer2__send, .composer2__model, .composer2__toggle) { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.welcome__card, .sidebar__item, .sidebar__icon-btn, .sidebar-show,
+    .composer2__send, .composer2__add, .omni-btn, .panel-view__btn):active:not(:disabled) {
+    transform: none;
+    opacity: 0.8;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .app-shell { background: var(--bg) !important; }
+  .titlebar, .sidebar, .omni-titlebar, .composer2__menu,
+  .settings-popover, .settings-sheet {
+    background: var(--bg-elevated);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .settings-overlay {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(0, 0, 0, 0.6);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root { --border: var(--text-secondary); --sub: var(--text-secondary); }
+  .welcome__card, .composer2__box, .settings-sheet, .composer2__menu {
+    border-color: var(--text-secondary);
+  }
+}

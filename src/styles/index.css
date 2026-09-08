@@ -1,6 +1,4 @@
-/* OmniLauncher — Google-style simple dark palette */
-/* Aggregated entry point. Imports below mirror the original styles.css
-   section order so the post-bundle cascade is byte-equivalent. */
+/* Omni Agent Desktop — shared components with Apple-inspired design. */
 
 /* base */
 @import "./base/variables.css";
@@ -42,3 +40,6 @@
 
 /* favorites (was the trailing section in the original) */
 @import "./components/favorites.css";
+
+/* Unified desktop materials, type, controls and accessibility fallbacks. */
+@import "./layout/apple.css";

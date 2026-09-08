@@ -10,6 +10,7 @@ import type {
 import CustomProviderFields from "./settings/CustomProviderFields";
 import CopilotProviderFields from "./settings/CopilotProviderFields";
 import AzureProviderFields from "./settings/AzureProviderFields";
+import Icon from "./Icon";
 import { validateProviderDraft } from "../lib/providerValidation";
 import {
   applyWindowSize,
@@ -55,10 +56,10 @@ const BG_PRESETS = [
 ];
 
 const TABS = [
-  { id: "ai", label: "AI", icon: "🤖" },
-  { id: "appearance", label: "Appearance", icon: "🎨" },
-  { id: "general", label: "General", icon: "⚙️" },
-  { id: "a2a", label: "A2A", icon: "🔗" },
+  { id: "ai", label: "AI", icon: "sparkles" },
+  { id: "appearance", label: "Appearance", icon: "appearance" },
+  { id: "general", label: "General", icon: "settings" },
+  { id: "a2a", label: "A2A", icon: "link" },
 ] as const;
 
 const PROVIDERS: { value: ProviderType; label: string }[] = [
@@ -736,7 +737,7 @@ export default function SettingsWindow({
     >
       <div data-tauri-drag-region className="omni-titlebar">
         <span className="omni-titlebar__title">
-          <span aria-hidden="true">⚙</span>
+          <Icon name="settings" size={18} />
           <span>Preferences</span>
         </span>
         <button
@@ -776,7 +777,7 @@ export default function SettingsWindow({
                 onClick={() => setActiveTab(tab.id)}
                 aria-pressed={isActive}
               >
-                <span aria-hidden="true">{tab.icon}</span>
+                <Icon name={tab.icon} size={16} />
                 <span>{tab.label}</span>
               </button>
             );

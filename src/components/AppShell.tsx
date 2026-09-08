@@ -1,9 +1,6 @@
 import type { ResolvedTheme } from "../utils/theme";
 import { buildBackgroundCss } from "../lib/background";
 
-const SHELL_FONT =
-  "'Aptos Display', 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif";
-
 export interface AppShellProps {
   resolvedTheme: ResolvedTheme;
   backgroundUrl: string;
@@ -26,13 +23,14 @@ export default function AppShell({
 }: AppShellProps) {
   return (
     <div
+      className="app-shell"
       style={{
         width: "100%",
         minHeight: "100vh",
         height: "100vh",
         background: buildBackgroundCss(backgroundUrl, resolvedTheme),
         color: "var(--text)",
-        fontFamily: SHELL_FONT,
+        fontFamily: "var(--font-system)",
         borderRadius: "0",
         overflow: "hidden",
         boxShadow: "none",

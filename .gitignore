@@ -28,6 +28,8 @@ skill-ui-test.png
 .env
 *.ico
 *.icns
+!src-tauri/icons/icon.ico
+!src-tauri/icons/icon.icns
 
 # Playwright MCP debug artifacts
 .playwright-mcp/

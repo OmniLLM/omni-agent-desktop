@@ -237,8 +237,8 @@ fn capture_area_to_path(path: &Path) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn capture_area_to_path(path: &Path) -> Result<(), String> {
-    let status = Command::new("screencapture")
-        .arg("-i")
+    let status = Command::new("/usr/sbin/screencapture")
+        .args(["-i", "-x", "-t", "png"])
         .arg(path)
         .status()
         .map_err(|error| format!("failed to launch screencapture: {error}"))?;
@@ -545,9 +545,46 @@ fn recognize_text(path: &Path) -> Result<String, String> {
     Ok(text.join("\n"))
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn recognize_text(path: &Path) -> Result<String, String> {
+    use objc2::{rc::autoreleasepool, AllocAnyThread};
+    use objc2_foundation::{NSArray, NSDictionary, NSString, NSURL};
+    use objc2_vision::{VNImageRequestHandler, VNRecognizeTextRequest, VNRequest};
+
+    let path = path.to_str()
+        .ok_or_else(|| "temporary screenshot path is not valid UTF-8".to_string())?;
+    autoreleasepool(|_| {
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path));
+        let request = VNRecognizeTextRequest::new();
+        // No image options are needed for the PNG produced by screencapture.
+        // The handler and its image remain alive until the synchronous request finishes.
+        let handler = unsafe {
+            VNImageRequestHandler::initWithURL_options(
+                VNImageRequestHandler::alloc(), &url, &NSDictionary::new(),
+            )
+        };
+        let requests = NSArray::from_slice(&[request.as_ref() as &VNRequest]);
+        handler.performRequests_error(&requests)
+            .map_err(|error| format!("failed to recognize screen text: {error}"))?;
+        let mut lines = Vec::new();
+        if let Some(observations) = request.results() {
+            for observation in observations {
+                // Vision returns candidates ordered by confidence.
+                if let Some(candidate) = observation.topCandidates(1).firstObject() {
+                    let text = candidate.string().to_string();
+                    if !text.trim().is_empty() {
+                        lines.push(text.trim().to_string());
+                    }
+                }
+            }
+        }
+        Ok(lines.join("\n"))
+    })
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn recognize_text(_path: &Path) -> Result<String, String> {
-    Err("Screen text selection is currently supported on Windows only.".to_string())
+    Err("Screen text selection is currently supported on Windows and macOS only.".to_string())
 }
 
 /// Select a screen region and recognize its text with the local OS OCR engine.
@@ -682,9 +719,8 @@ fn register_shortcut(
             }
         })
         .map_err(|e| e.to_string())?;
-    app.global_shortcut()
-        .register(shortcut)
-        .map_err(|e| e.to_string())?;
+    // on_shortcut already registers the hotkey. Registering it a second time
+    // fails with RegisterEventHotKey on macOS.
     *slot.0.lock().map_err(|e| e.to_string())? = Some(shortcut);
     Ok(())
 }
@@ -797,13 +833,45 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building Omni Agent Desktop")
-        .run(|_app, _event| {});
+        .run(|_app, _event| {
+            if let tauri::RunEvent::Exit = _event {
+                if let Some(state) = _app.try_state::<SidecarState>() {
+                    state.0.stop();
+                }
+            }
+            // Clicking the Dock icon should restore a window hidden by the hotkey.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                if let Some(window) = _app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        });
 }
 
 #[cfg(test)]
 mod tests {
     use super::{encode_png_data_url, new_window_handles};
     use std::collections::HashSet;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn recognizes_text_with_apple_vision() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/ocr.png");
+        let text = super::recognize_text(&path).expect("Apple Vision OCR");
+        assert!(text.contains("Omni Agent Desktop 123"), "unexpected OCR result: {text}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn reports_unreadable_ocr_image() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/missing.png");
+        assert!(super::recognize_text(&path).unwrap_err().contains("failed to recognize"));
+    }
 
     #[test]
     fn encodes_png_bytes_as_a_data_url() {

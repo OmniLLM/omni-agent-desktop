@@ -90,7 +90,8 @@ Server-side A2A registration knobs belong to the upstream agent or hub configura
 
 ### Prerequisites
 
-- **Node.js and npm** — for the React/Vite frontend and Tauri CLI.
+- **Node.js 22.12+ and npm** — for the React/Vite frontend and Tauri CLI (Node.js 24 LTS recommended).
+- **Bun** — for compiling the bundled agent-core executable.
 - **Rust and Cargo** — for the Tauri desktop shell (`src-tauri`).
 - **GNU Make** — to run the `make` targets below.
 - **Tauri 2 platform prerequisites** — OS-specific system dependencies (e.g. WebKitGTK/GTK on Linux, build tools on macOS/Windows). Follow the official guide: https://v2.tauri.app/start/prerequisites/
@@ -98,12 +99,13 @@ Server-side A2A registration knobs belong to the upstream agent or hub configura
 ### Build & run
 
 ```bash
+npm ci       # install frontend dependencies on a fresh checkout
 make build   # build the single native binary
 make start   # launch the built binary
 ```
 
 - `make build` — build the release app with Tauri (`npm run tauri build`).
-- `make start` — launch the built release binary (`npm start`).
+- `make start` — launch the built release app (`npm start`); on macOS this opens the `.app` through Launch Services.
 
 `make build` produces the standalone desktop executable under `src-tauri/target/release/` (`omni-agent-desktop`, or `omni-agent-desktop.exe` on Windows), alongside platform installers/bundles (`.deb`/`.AppImage`/`.dmg`/`.msi`, etc.) under `src-tauri/target/release/bundle/`.
 
@@ -113,12 +115,36 @@ For hot-reload development and testing, use the npm scripts directly:
 
 ```bash
 npm ci                    # install dependencies
+make sidecar              # install and compile the agent before Tauri/Cargo commands
 npm run tauri dev         # run the Tauri dev app with hot reload
 npm test                  # frontend tests (Vitest)
 npm run test:launcher     # launcher script tests
 npm run build             # type-check and build the frontend
 npm run openspec:validate # strictly validate all OpenSpec specs and changes
+cargo test --manifest-path src-tauri/Cargo.toml --bin omni-agent-desktop
 ```
+
+### macOS
+
+Requires macOS 13 or later. Install Xcode Command Line Tools (`xcode-select --install`),
+Rust, Node.js, and Bun, then use the build commands above. Builds use the host
+architecture: Apple Silicon produces an arm64 app; Intel Macs produce an x64 app.
+
+The application is at `src-tauri/target/release/bundle/macos/Omni Agent Desktop.app`;
+the disk image is under `src-tauri/target/release/bundle/dmg/`. Open the application
+with `make start`, double-click it in Finder, or copy it to `/Applications`.
+The bundle includes the agent runtime, so Node.js and Bun are only needed to build.
+`npm start -- --debug` forwards startup arguments to the app.
+
+The global launcher shortcut is `Ctrl+Shift+O`. Clicking the Dock icon also restores
+a hidden or minimized window. `/screenshot` uses the native macOS region selector;
+`/select` (alias `/ocr`) recognizes the selected text locally using Apple Vision.
+Allow Omni Agent Desktop in System Settings → Privacy & Security → Screen Recording
+(called Screen & System Audio Recording on newer macOS versions) when prompted,
+then reopen the app if macOS requests it.
+
+Local builds are not notarized for distribution. Public releases need Apple signing
+and notarization configured in the Tauri build environment.
 
 ## Specification-driven development
 

@@ -34,7 +34,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    },
+    "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"],
     "externalBin": ["binaries/agent-core"]
   }
 }

@@ -78,16 +78,21 @@ pub struct Sidecar {
     pending: Pending,
     /// Consumed exactly once by `forward_events`.
     events_rx: Mutex<Option<mpsc::UnboundedReceiver<(String, Value)>>>,
-    _child: Child,
+    child: std::sync::Mutex<Child>,
 }
 
 impl Sidecar {
     /// Spawn the sidecar binary. Resolves it in this order:
     ///   1. `OMNI_AGENT_CORE_BIN` env var (dev override).
     ///   2. `<exe_dir>/agent-core[.exe]` (packaged: Tauri externalBin drop).
-    ///   3. `<exe_dir>/../../../agent-core/dist/index.js` invoked with `node` (dev fallback).
+    ///   3. The resource directory (Linux packaging compatibility).
+    ///   4. An ancestor's `agent-core/src/index.ts` invoked with Bun (dev fallback).
     pub fn spawn(app: &AppHandle) -> io::Result<Arc<Self>> {
         let mut cmd = build_command(app)?;
+        // Tauri setup runs on the UI thread, outside Tokio. Process pipes need
+        // its reactor even though spawning the process itself is synchronous.
+        let runtime = tauri::async_runtime::handle();
+        let _guard = runtime.inner().enter();
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -156,8 +161,18 @@ impl Sidecar {
             stdin: Mutex::new(stdin),
             pending,
             events_rx: Mutex::new(Some(events_rx)),
-            _child: child,
+            child: std::sync::Mutex::new(child),
         }))
+    }
+
+    /// Tauri exits the process without necessarily dropping managed state.
+    /// Stop the agent explicitly so its scheduler cannot outlive the app.
+    pub fn stop(&self) {
+        if let Ok(mut child) = self.child.lock() {
+            if let Err(error) = child.start_kill() {
+                log::warn!("failed to stop agent-core: {error}");
+            }
+        }
     }
 
     /// Fire-and-forget: drain the event queue and re-emit every event through
@@ -219,22 +234,28 @@ fn build_command(app: &AppHandle) -> io::Result<Command> {
         return Ok(Command::new(explicit));
     }
 
-    let exe_dir = app
-        .path()
-        .resource_dir()
-        .ok()
-        .or_else(|| std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())))
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let executable = std::env::current_exe()?;
+    build_local_command(&executable, app.path().resource_dir().ok().as_deref())
+}
+
+fn build_local_command(executable: &std::path::Path, resource_dir: Option<&std::path::Path>) -> io::Result<Command> {
+    let exe_dir = executable.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, "app executable has no parent directory")
+    })?;
 
     // 2. packaged externalBin sitting next to the main exe
     let bin_name = if cfg!(windows) { format!("{SIDECAR_BIN}.exe") } else { SIDECAR_BIN.to_string() };
-    let packaged = exe_dir.join(&bin_name);
-    if packaged.exists() {
-        return Ok(Command::new(packaged));
+    // On macOS externalBin lives in Contents/MacOS beside the executable,
+    // while resource_dir is Contents/Resources. Check both independently.
+    for dir in std::iter::once(exe_dir).chain(resource_dir) {
+        let packaged = dir.join(&bin_name);
+        if packaged.is_file() {
+            return Ok(Command::new(packaged));
+        }
     }
 
     // 3. dev fallback: bun <repo>/agent-core/src/index.ts
-    let mut walker = exe_dir.clone();
+    let mut walker = exe_dir.to_path_buf();
     for _ in 0..6 {
         let candidate = walker.join("agent-core").join("src").join("index.ts");
         if candidate.exists() {
@@ -271,5 +292,78 @@ pub async fn handshake(sc: &Sidecar) {
     match sc.call("hello", json!({})).await {
         Ok(v) => log::info!("sidecar hello: {v}"),
         Err(e) => log::error!("sidecar hello failed: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_local_command;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct Fixture(PathBuf);
+
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "omni-sidecar-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+
+        fn file(&self, relative: &str) -> PathBuf {
+            let path = self.0.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, "").unwrap();
+            path
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
+    fn bin_name() -> &'static str {
+        if cfg!(windows) { "agent-core.exe" } else { "agent-core" }
+    }
+
+    #[test]
+    fn resolves_macos_bundle_sidecar_beside_executable_before_resources() {
+        let fixture = Fixture::new();
+        let executable = fixture.file("Omni Agent Desktop.app/Contents/MacOS/omni-agent-desktop");
+        let sidecar = fixture.file(&format!("Omni Agent Desktop.app/Contents/MacOS/{}", bin_name()));
+        let resource_sidecar = fixture.file(&format!("Omni Agent Desktop.app/Contents/Resources/{}", bin_name()));
+        let command = build_local_command(&executable, resource_sidecar.parent()).unwrap();
+        assert_eq!(Path::new(command.as_std().get_program()), sidecar);
+    }
+
+    #[test]
+    fn falls_back_to_resource_sidecar() {
+        let fixture = Fixture::new();
+        let executable = fixture.file("bin/omni-agent-desktop");
+        let sidecar = fixture.file(&format!("resources/{}", bin_name()));
+        let command = build_local_command(&executable, sidecar.parent()).unwrap();
+        assert_eq!(Path::new(command.as_std().get_program()), sidecar);
+    }
+
+    #[test]
+    fn development_fallback_walks_from_executable_even_with_unrelated_resources() {
+        let fixture = Fixture::new();
+        let executable = fixture.file("repo/src-tauri/target/debug/omni-agent-desktop");
+        let source = fixture.file("repo/agent-core/src/index.ts");
+        let command = build_local_command(&executable, Some(&fixture.0.join("resources"))).unwrap();
+        assert_eq!(command.as_std().get_program(), "bun");
+        assert_eq!(command.as_std().get_args().next().unwrap(), source.as_os_str());
+    }
+
+    #[test]
+    fn missing_sidecar_returns_actionable_error() {
+        let fixture = Fixture::new();
+        let executable = fixture.file("bin/omni-agent-desktop");
+        let error = build_local_command(&executable, None).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert!(error.to_string().contains("make sidecar"));
     }
 }

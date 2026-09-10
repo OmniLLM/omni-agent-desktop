@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import {
   getReleaseExecutable,
+  getLaunchCommand,
   validateReleaseExecutable,
 } from "./start-release.mjs";
 
@@ -19,13 +20,32 @@ test("getReleaseExecutable resolves the Windows .exe path", () => {
   );
 });
 
-test("getReleaseExecutable resolves the suffix-free path on non-Windows", () => {
-  for (const platform of ["linux", "darwin"]) {
+test("getReleaseExecutable resolves the suffix-free path on Linux", () => {
+  for (const platform of ["linux"]) {
     const executable = getReleaseExecutable(ROOT, platform);
     assert.equal(
       executable,
       join(ROOT, "src-tauri", "target", "release", "omni-agent-desktop"),
     );
+  }
+});
+
+test("macOS launches the app bundle through Launch Services and forwards arguments", () => {
+  const bundle = join(ROOT, "src-tauri", "target", "release", "bundle", "macos", "Omni Agent Desktop.app");
+  const executable = getReleaseExecutable(ROOT, "darwin");
+  assert.equal(executable, join(bundle, "Contents", "MacOS", "omni-agent-desktop"));
+  assert.deepEqual(getLaunchCommand(executable, "darwin", ["--debug"]), {
+    command: "/usr/bin/open",
+    args: ["-W", bundle, "--args", "--debug"],
+  });
+});
+
+test("Windows and Linux launch their executable directly with arguments", () => {
+  for (const platform of ["win32", "linux"]) {
+    const executable = getReleaseExecutable(ROOT, platform);
+    assert.deepEqual(getLaunchCommand(executable, platform, ["--debug"]), {
+      command: executable, args: ["--debug"],
+    });
   }
 });
 

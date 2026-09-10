@@ -13,6 +13,10 @@ const EXECUTABLE_BASENAME = "omni-agent-desktop";
  * @returns {string} Absolute path to the release executable.
  */
 export function getReleaseExecutable(repoRoot, platform = process.platform) {
+  if (platform === "darwin") {
+    return join(repoRoot, "src-tauri", "target", "release", "bundle", "macos",
+      "Omni Agent Desktop.app", "Contents", "MacOS", EXECUTABLE_BASENAME);
+  }
   const suffix = platform === "win32" ? ".exe" : "";
   return join(
     repoRoot,
@@ -47,6 +51,15 @@ export function validateReleaseExecutable(executable) {
   return executable;
 }
 
+export function getLaunchCommand(executable, platform = process.platform, args = []) {
+  if (platform === "darwin") {
+    // Launch Services supplies the bundle identity used by the Dock and macOS
+    // privacy permissions. -W keeps npm start attached until the app exits.
+    return { command: "/usr/bin/open", args: ["-W", dirname(dirname(dirname(executable))), "--args", ...args] };
+  }
+  return { command: executable, args };
+}
+
 function main() {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   let executable;
@@ -58,7 +71,8 @@ function main() {
     return;
   }
 
-  const result = spawnSync(executable, { stdio: "inherit" });
+  const launch = getLaunchCommand(executable, process.platform, process.argv.slice(2));
+  const result = spawnSync(launch.command, launch.args, { stdio: "inherit" });
   if (result.error) {
     console.error(`Failed to launch ${executable}: ${result.error.message}`);
     process.exitCode = 1;
